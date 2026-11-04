@@ -1,11 +1,34 @@
 # HealthFlow — Healthcare Data Integration & Analytics Platform
 
+[![Live demo](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/live-demo.yml/badge.svg)](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/live-demo.yml)
+[![Python CI](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/python-ci.yml/badge.svg)](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/python-ci.yml)
+[![dbt CI](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/dbt-ci.yml/badge.svg)](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/dbt-ci.yml)
+
+### 👉 [Live demo: obaoriekwo.github.io/healthflow-healthcare-data-platform](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/)
+
 An ELT platform that turns fragmented hospital data into tested, analysis-ready models.
 Python ingests source files into an immutable Bronze layer on Azure storage and a PostgreSQL
 warehouse; dbt transforms them into a dimensional model; Airflow orchestrates; Power BI reports.
 
 **All data is synthetic** (generated with [Synthea](https://github.com/synthetichealth/synthea)).
 No real patient data is used anywhere in this project.
+
+## The live demo
+
+Every night, GitHub Actions rebuilds the whole platform from an empty database and publishes the result:
+
+1. Generates 10,000 synthetic patients with Synthea (cached weekly).
+2. Simulates a year of daily deliveries from two hospital systems, with late arrivals, corrections,
+   and two deliberate faults: a re-sent file with a renamed column, and a file with unusable rows.
+3. Ingests every day in order, then **replays every day again** and checks that nothing changed.
+4. Runs `dbt build`: all models and 85 data tests.
+5. Publishes three pages: the [dashboard](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/),
+   the [pipeline status](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/pipeline.html)
+   (deliveries, quarantine log, replay check, test results) and the
+   [data model](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/model/index.html) (dbt docs with lineage).
+
+If any step or test fails, nothing is published, so the site always shows a run that passed.
+Workflow: [`.github/workflows/live-demo.yml`](.github/workflows/live-demo.yml).
 
 ## Status
 
@@ -16,7 +39,7 @@ No real patient data is used anywhere in this project.
 | 2 | Idempotent raw load, file and run audit | ✅ |
 | 3 | dbt: staging, intermediate, star schema, KPI marts, 85 tests | ✅ |
 | 4 | Airflow runs dbt (Cosmos), quality and reconciliation | ⏳ next |
-| 5 | GitHub Actions: Python CI ✅, dbt CI ✅ | ✅ |
+| 5 | GitHub Actions: Python CI, dbt CI, nightly live demo on GitHub Pages | ✅ |
 | 6 | Azure + Terraform | ⏳ |
 | 7 | Power BI + documentation | ⏳ |
 
@@ -138,7 +161,8 @@ ingestion/         Contracts, pipeline, storage backends, CLI
 simulator/         Synthea snapshot -> daily source deliveries (encounters, patients)
 sql/ddl/           Warehouse schemas, audit and raw tables (idempotent)
 dbt/               Models (staging, intermediate, marts), seeds, tests, macros
-scripts/           Synthea generation, end-to-end incremental check
+scripts/           Synthea generation, incremental check, live demo pipeline and site builder
+site/              Live demo page templates and assets
 tests/             Python unit and integration tests
 docs/              Architecture decisions, readmission definition
 infrastructure/    Phase 6 (Terraform)

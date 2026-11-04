@@ -8,6 +8,9 @@ Writes <landing>/<entity>/available_date=YYYY-MM-DD/<entity>_YYYY-MM-DD.csv for:
     patients     simulator/patient_feed.py   (de-identified, death updates)
 
 Same input and seed always give byte-identical files.
+
+--inject-faults adds one schema-drifted re-send and a few corrupt rows to the encounter
+feed (see simulator/faults.py), to show the quarantine working.
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from pathlib import Path
 
 from simulator import encounter_feed, patient_feed
 from simulator.common import UPDATED_AT_COLUMN, fill_days, write_feed
+from simulator.faults import inject_faults
 
 
 def _read_csv(path: Path) -> tuple[list[str], list[dict[str, str]]]:
@@ -37,6 +41,7 @@ def generate(
     seed: int = 42,
     max_lag_days: int = 2,
     correction_rate: float = 0.02,
+    faults: bool = False,
 ) -> dict[str, tuple[int, int]]:
     """Write daily landing files for every entity. Returns {entity: (records, files)}."""
     enc_columns, enc_rows = _read_csv(Path(synthea_csv_dir) / "encounters.csv")
@@ -64,6 +69,12 @@ def generate(
     for entity, (feed, fieldnames) in feeds.items():
         paths = write_feed(feed, landing_dir, entity, fieldnames)
         result[entity] = (sum(len(rows) for rows in feed.values()), len(paths))
+        if faults and entity == encounter_feed.ENTITY:
+            injected = inject_faults(feed, landing_dir, entity, fieldnames, seed=seed)
+            print(
+                f"injected faults: schema-drifted re-send on {injected.drifted_file_day}, "
+                f"{injected.bad_rows} corrupt rows on {injected.bad_rows_day}"
+            )
     return result
 
 
@@ -77,6 +88,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-lag-days", type=int, default=2)
     parser.add_argument("--correction-rate", type=float, default=0.02)
     parser.add_argument("--overwrite", action="store_true", help="Delete existing landing files first")
+    parser.add_argument("--inject-faults", action="store_true", help="Add a drifted file and corrupt rows")
     args = parser.parse_args(argv)
 
     for entity in (encounter_feed.ENTITY, patient_feed.ENTITY):
@@ -94,6 +106,7 @@ def main(argv: list[str] | None = None) -> None:
         seed=args.seed,
         max_lag_days=args.max_lag_days,
         correction_rate=args.correction_rate,
+        faults=args.inject_faults,
     )
     for entity, (records, files) in result.items():
         print(f"{entity}: {records} records in {files} daily files under {args.landing_dir / entity}")

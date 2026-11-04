@@ -22,8 +22,11 @@ with episodes as (
 
 data_coverage as (
 
-    -- The last day of deliveries we have. Later discharges cannot be judged yet.
-    select max(latest_available_date) as data_through
+    -- The latest day we have seen activity for. Discharges whose 30-day follow-up runs past
+    -- it cannot be judged yet. This uses event dates, not delivery dates: late-arriving
+    -- deliveries continue for days after the last event and would otherwise make the
+    -- follow-up look complete when it is not.
+    select max(start_date) as data_through
     from {{ ref('stg_encounters') }}
 
 ),

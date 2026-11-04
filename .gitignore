@@ -40,3 +40,7 @@ dbt/logs/
 .vscode/
 .idea/
 .dbt-venv/
+
+# Live demo build output
+_site/
+data/demo/

@@ -109,3 +109,22 @@ window becomes observable, so an incremental version would need to reprocess mos
 
 `scripts/check_incremental.py` (run in CI) loads data in two halves, builds after each, and
 checks that the incremental result is identical to `dbt build --full-refresh`.
+
+## ADR-012: The live demo is a nightly rebuild on GitHub Actions, published as a static site
+
+Recruiters and reviewers need a link that always works, without logging in. Hosting Airflow and
+Postgres permanently would cost money and expose admin tools to the internet. Instead,
+`.github/workflows/live-demo.yml` rebuilds everything from an empty database every night on a
+GitHub-hosted runner and publishes static pages to GitHub Pages (free for public repositories).
+
+- The site is generated from the gold layer and the audit tables only (`scripts/build_site.py`),
+  so every number on it was produced by the pipeline in that run.
+- Each run injects two faults (a schema-drifted re-send and corrupt rows, `simulator/faults.py`),
+  so the quarantine log always has something to show.
+- Each run replays every day's ingestion a second time and fails if the warehouse changes.
+- A failed step or test stops the deploy, so the site keeps the last good version.
+
+Readmission rates are shown only for discharge months whose 30-day follow-up is complete. The model
+judges completeness from the latest *event* date, not the latest *delivery* date: deliveries keep
+arriving for days after the last event (late arrivals), and the first version of the live demo
+showed a misleading 33% spike for the most recent month because of exactly this.

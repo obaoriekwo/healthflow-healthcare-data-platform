@@ -49,3 +49,26 @@ def test_fill_days_gives_every_day_a_file():
     rows = make_encounters(5, FROM, 1)
     feed = fill_days(build_encounter_feed(rows, from_date=FROM, to_date=TO, correction_rate=0), FROM, TO)
     assert sorted(feed) == [FROM + timedelta(n) for n in range((TO - FROM).days + 1)]
+
+
+def test_injected_faults_are_deterministic_and_within_limits(tmp_path):
+    import csv
+
+    from simulator.common import landing_path, write_feed
+    from simulator.faults import inject_faults
+
+    rows = make_encounters(2000, FROM, 10)
+    feed = fill_days(build_encounter_feed(rows, from_date=FROM, to_date=TO, correction_rate=0), FROM, TO)
+    columns = [*rows[0], UPDATED_AT_COLUMN]
+    write_feed(feed, tmp_path, "encounters", columns)
+    faults = inject_faults(feed, tmp_path, "encounters", columns)
+
+    resend = landing_path(tmp_path, "encounters", faults.drifted_file_day).with_name(
+        f"encounters_{faults.drifted_file_day}_resend.csv"
+    )
+    with open(resend, newline="") as fh:
+        assert "PATIENT_ID" in next(csv.reader(fh))
+    assert faults.bad_rows == 3 and faults.bad_rows_day > faults.drifted_file_day
+    with open(landing_path(tmp_path, "encounters", faults.bad_rows_day), newline="") as fh:
+        day_rows = list(csv.DictReader(fh))
+    assert sum(1 for r in day_rows if not r["Id"]) == 2 and 3 / len(day_rows) <= 0.10
