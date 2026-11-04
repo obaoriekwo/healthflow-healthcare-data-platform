@@ -39,3 +39,4 @@ dbt/logs/
 .DS_Store
 .vscode/
 .idea/
+.dbt-venv/
