@@ -1,0 +1,5 @@
+# dbt, pinned as a set (see docs/decisions.md, ADR-005).
+# Install in its own virtual environment: dbt's dependencies conflict with Airflow's.
+# dbt-postgres alone resolves to a dbt-core pre-release, so dbt-core is pinned explicitly.
+dbt-core==1.12.6
+dbt-postgres==1.11.0

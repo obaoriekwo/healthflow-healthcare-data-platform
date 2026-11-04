@@ -1,0 +1,57 @@
+version: 2
+
+seeds:
+  - name: admission_types
+    description: >
+      Maps Synthea inpatient encounter codes (SNOMED CT) to a hospital department and says
+      whether the admission is planned. Planned admissions are never counted as
+      readmissions. The planned list follows the idea of the CMS planned readmission
+      algorithm (transplants and rehabilitation are always planned; elective and scheduled
+      admissions are planned). This mapping is a HealthFlow modelling choice, not Synthea data.
+    config:
+      column_types:
+        admission_code: text
+        is_planned: boolean
+    columns:
+      - name: admission_code
+        data_tests: [unique, not_null]
+      - name: department_code
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('departments')
+                field: department_code
+      - name: is_planned
+        data_tests: [not_null]
+
+  - name: departments
+    description: Hospital departments used by HealthFlow (synthetic reference data).
+    config:
+      column_types:
+        is_critical_care: boolean
+    columns:
+      - name: department_code
+        data_tests: [unique, not_null]
+
+  - name: admission_reasons
+    description: >
+      Admission reasons (SNOMED CT) that override the department and/or mark the stay as
+      planned. Synthea admits cancer patients every 3-4 weeks for chemotherapy under the
+      generic "Encounter for problem" code; without this seed those cycles would count as
+      readmissions (in the first 1,000-patient test they were 18 of 19). Reason codes not
+      listed here fall back to admission_types.
+    config:
+      column_types:
+        reason_code: text
+        is_planned: boolean
+    columns:
+      - name: reason_code
+        data_tests: [unique, not_null]
+      - name: department_code
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('departments')
+                field: department_code

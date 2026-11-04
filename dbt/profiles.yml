@@ -1,0 +1,14 @@
+# Connection settings come from environment variables; nothing secret is stored here.
+# Run dbt with:  dbt build --project-dir dbt --profiles-dir dbt
+healthflow:
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('WAREHOUSE_HOST', 'localhost') }}"
+      port: "{{ env_var('WAREHOUSE_PORT', '5433') | int }}"
+      user: "{{ env_var('WAREHOUSE_USER', 'healthflow') }}"
+      password: "{{ env_var('WAREHOUSE_PASSWORD', 'healthflow') }}"
+      dbname: "{{ env_var('WAREHOUSE_DB', 'healthflow_warehouse') }}"
+      schema: public
+      threads: 4

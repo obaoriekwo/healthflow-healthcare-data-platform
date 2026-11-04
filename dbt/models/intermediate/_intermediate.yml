@@ -1,0 +1,68 @@
+version: 2
+
+models:
+  - name: int_inpatient_encounters
+    description: >
+      Inpatient encounters assigned to hospital stays. Encounters starting within
+      transfer_gap_hours of the latest discharge so far (overlapping, nested or back to
+      back) are transfers within one stay.
+    columns:
+      - name: encounter_id
+        data_tests: [unique, not_null]
+      - name: episode_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('int_inpatient_episodes')
+                field: episode_id
+      - name: department_code
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [GENMED, INFDIS, ONC, ADDICT, ICU, SURG, THORSURG, TRANSPLANT, ORTHO]
+              config:
+                severity: warn  # a new Synthea admission code shows up as UNMAPPED: add it to the seed
+
+  - name: int_inpatient_episodes
+    description: One row per hospital stay, from admission to final discharge.
+    columns:
+      - name: episode_id
+        description: The first encounter of the stay.
+        data_tests: [unique, not_null]
+      - name: patient_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_patients')
+                field: patient_id
+      - name: length_of_stay_days
+        data_tests:
+          - not_null
+          - accepted_range:
+              arguments:
+                min_value: 0
+      - name: discharged_at
+        data_tests:
+          - not_before:
+              arguments:
+                other_column: admitted_at
+
+  - name: int_readmissions
+    description: >
+      Hospital stays with 30-day readmission evaluation. See docs/readmission_definition.md.
+    columns:
+      - name: episode_id
+        data_tests: [unique, not_null]
+      - name: index_exclusion_reason
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [died_in_hospital, under_minimum_age, follow_up_window_incomplete]
+      - name: days_to_readmission
+        data_tests:
+          - accepted_range:
+              arguments:
+                min_value: 0
+                max_value: "{{ var('readmission_window_days') }}"

@@ -1,0 +1,35 @@
+name: healthflow
+version: "0.1.0"
+config-version: 2
+profile: healthflow
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+analysis-paths: ["analyses"]
+clean-targets: ["target", "dbt_packages"]
+
+# Business rules live here, so they are visible, documented and easy to change.
+# See docs/readmission_definition.md.
+vars:
+  readmission_window_days: 30   # an unplanned admission within this many days of discharge
+  transfer_gap_hours: 1         # inpatient encounters starting within this gap of the previous one are one stay
+  min_index_age_years: 18       # adult index admissions only
+  fact_lookback_days: 3         # incremental models reprocess this many days of late-arriving updates
+
+models:
+  healthflow:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: table
+    marts:
+      +schema: marts
+      +materialized: table
+
+seeds:
+  healthflow:
+    +schema: reference

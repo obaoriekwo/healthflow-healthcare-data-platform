@@ -1,0 +1,43 @@
+name: dbt CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-compare:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: healthflow
+          POSTGRES_PASSWORD: healthflow
+          POSTGRES_DB: healthflow_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U healthflow" --health-interval 5s --health-retries 10
+    env:
+      HEALTHFLOW_TEST_DSN: postgresql://healthflow:healthflow@localhost:5432/healthflow_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install ingestion and dbt (dbt in its own virtual environment)
+        run: |
+          pip install -r requirements-ingestion.txt
+          python -m venv .dbt-venv
+          .dbt-venv/bin/pip install -r requirements-dbt.txt
+      - name: dbt parse (project compiles)
+        run: .dbt-venv/bin/dbt parse --project-dir dbt --profiles-dir dbt
+        env:
+          WAREHOUSE_PORT: "5432"
+      # Ingests synthetic data in two halves, runs dbt build after each (all models and
+      # tests), then checks the incremental result equals a full refresh.
+      - name: Ingest, build incrementally, compare with full refresh
+        run: python scripts/check_incremental.py
+        env:
+          DBT: .dbt-venv/bin/dbt

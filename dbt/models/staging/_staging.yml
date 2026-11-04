@@ -1,0 +1,74 @@
+version: 2
+
+models:
+  - name: stg_encounters
+    description: >
+      One row per encounter, latest version received. Typed and renamed; no business logic.
+    columns:
+      - name: encounter_id
+        data_tests: [unique, not_null]
+      - name: patient_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_patients')
+                field: patient_id
+      - name: encounter_class
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [ambulatory, wellness, outpatient, urgentcare, emergency, inpatient, home, hospice, virtual, snf]
+              config:
+                severity: warn
+      - name: started_at
+        data_tests: [not_null]
+      - name: ended_at
+        data_tests:
+          - not_before:
+              arguments:
+                other_column: started_at
+      - name: total_claim_cost
+        data_tests:
+          - accepted_range:
+              arguments:
+                min_value: 0
+      - name: version_count
+        description: How many versions of this record were received (more than 1 = corrected).
+      - name: first_available_date
+        description: When the source first delivered this encounter.
+      - name: latest_available_date
+        description: When the source delivered the version shown here.
+      - name: last_ingested_at
+        description: When the newest version was loaded. Drives incremental models.
+
+  - name: stg_patient_versions
+    description: >
+      Every distinct version of every patient as sent by the source, with
+      valid_from / valid_to. The first version is valid from 1900-01-01.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [patient_id, version_number]
+    columns:
+      - name: patient_id
+        data_tests: [not_null]
+      - name: birth_date
+        data_tests: [not_null]
+      - name: death_date
+        data_tests:
+          - not_before:
+              arguments:
+                other_column: birth_date
+      - name: gender
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [male, female, unknown]
+
+  - name: stg_patients
+    description: One row per patient, current version.
+    columns:
+      - name: patient_id
+        data_tests: [unique, not_null]

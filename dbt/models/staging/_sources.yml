@@ -1,0 +1,39 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >
+      Append-only tables loaded by the Python ingestion (see ingestion/). Every column is
+      text exactly as delivered; a record that changed at the source appears once per
+      version. Underscore columns are ingestion metadata.
+    schema: raw_staging
+    config:
+      loaded_at_field: _ingested_at
+      freshness:
+        warn_after: { count: 2, period: day }
+        error_after: { count: 4, period: day }
+    tables:
+      - name: encounters
+        description: Encounter records from the simulated admissions system (Synthea-derived).
+        columns:
+          - name: id
+            data_tests: [not_null]
+          - name: _file_id
+            data_tests:
+              - relationships:
+                  arguments:
+                    to: source('audit', 'ingestion_file_audit')
+                    field: file_id
+      - name: patients
+        description: De-identified patient records from the simulated registration system.
+        columns:
+          - name: id
+            data_tests: [not_null]
+
+  - name: audit
+    schema: audit
+    tables:
+      - name: ingestion_file_audit
+        description: One row per source delivery (file) ever received.
+      - name: pipeline_run_audit
+        description: One row per ingestion run (source and processing date).

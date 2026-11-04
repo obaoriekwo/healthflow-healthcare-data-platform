@@ -1,0 +1,40 @@
+name: Python CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: healthflow
+          POSTGRES_PASSWORD: healthflow
+          POSTGRES_DB: healthflow_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U healthflow" --health-interval 5s --health-retries 10
+    env:
+      HEALTHFLOW_TEST_DSN: postgresql://healthflow:healthflow@localhost:5432/healthflow_test
+      # Azurite's public, documented development key (not a secret)
+      HEALTHFLOW_TEST_AZURE_CONNECTION_STRING: >-
+        DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://localhost:10000/devstoreaccount1;
+    steps:
+      - uses: actions/checkout@v4
+      # Started here rather than as a service, because services cannot override the command
+      - name: Start Azurite (Blob only)
+        run: >-
+          docker run -d -p 10000:10000 mcr.microsoft.com/azure-storage/azurite:3.37.0
+          azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest -v -rs

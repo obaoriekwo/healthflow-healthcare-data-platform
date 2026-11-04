@@ -1,0 +1,144 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: Calendar dimension. date_key is YYYYMMDD.
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+
+  - name: dim_department
+    description: Hospital departments.
+    columns:
+      - name: department_key
+        data_tests: [unique, not_null]
+
+  - name: dim_patient
+    description: >
+      Patient dimension, SCD type 2: one row per version. Join facts on patient_key.
+      Contains no direct identifiers (they are withheld by the source extract).
+    columns:
+      - name: patient_key
+        data_tests: [unique, not_null]
+      - name: patient_id
+        data_tests: [not_null]
+      - name: valid_to
+        data_tests:
+          - not_before:
+              arguments:
+                other_column: valid_from
+
+  - name: fact_encounters
+    description: >
+      Grain: one row per encounter (latest version). Incremental (delete+insert on
+      encounter_id) with a lookback, so corrected records replace earlier versions.
+    columns:
+      - name: encounter_id
+        data_tests: [unique, not_null]
+      - name: patient_key
+        description: The patient version valid when the encounter started.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_patient')
+                field: patient_key
+      - name: start_date_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: department_key
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_department')
+                field: department_key
+      - name: hospital_stay_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('fact_hospital_stays')
+                field: hospital_stay_id
+      - name: patient_age_at_encounter
+        data_tests:
+          - accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 120
+
+  - name: fact_hospital_stays
+    description: >
+      Grain: one row per hospital stay (transfers merged), with 30-day readmission
+      evaluation. See docs/readmission_definition.md.
+    columns:
+      - name: hospital_stay_id
+        data_tests: [unique, not_null]
+      - name: patient_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_patient')
+                field: patient_key
+      - name: admitting_department_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_department')
+                field: department_key
+      - name: admission_date_key
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_key
+      - name: readmission_stay_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('fact_hospital_stays')
+                field: hospital_stay_id
+
+  - name: mart_hospital_operations
+    description: Daily activity, admissions, discharges and midnight census.
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+      - name: midnight_census
+        data_tests:
+          - accepted_range:
+              arguments:
+                min_value: 0
+
+  - name: mart_emergency_department
+    description: Daily ED volume and time in department, including the 4-hour measure.
+    columns:
+      - name: date_key
+        data_tests: [unique, not_null]
+
+  - name: mart_patient_readmissions
+    description: >
+      30-day readmissions by discharge month and admitting department. Sum readmissions
+      and index_stays before dividing; never average readmission_rate_pct.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [discharge_month, department_key]
+    columns:
+      - name: readmission_rate_pct
+        data_tests:
+          - accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 100
+
+  - name: mart_department_performance
+    description: Monthly department workload and length of stay.
+    data_tests:
+      - unique_combination:
+          arguments:
+            columns: [discharge_month, department_key]

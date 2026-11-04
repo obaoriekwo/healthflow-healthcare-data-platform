@@ -1,0 +1,41 @@
+# Secrets
+.env
+*.pem
+*.key
+
+# Data (generated locally, never committed)
+data/landing/*
+data/bronze/*
+data/synthea/*
+!data/**/.gitkeep
+*.csv
+!tests/fixtures/*.csv
+!dbt/seeds/*.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Airflow
+airflow/logs/
+simple_auth_manager_passwords.json.generated
+
+# dbt
+dbt/target/
+dbt/dbt_packages/
+dbt/logs/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/

@@ -1,0 +1,15 @@
+admission_code,admission_description,department_code,is_planned,planned_reason
+185347001,Encounter for problem (procedure),GENMED,false,
+32485007,Hospital admission (procedure),GENMED,false,
+305342007,Admission to ward (procedure),GENMED,false,
+76464004,Hospital admission for observation (procedure),GENMED,false,
+1505002,Hospital admission for isolation (procedure),INFDIS,false,
+305351004,Admission to intensive care unit (procedure),ICU,false,
+397821002,Patient transfer to intensive care unit (procedure),ICU,false,
+305408004,Admission to surgical department (procedure),SURG,false,
+305411003,Admission to thoracic surgery department (procedure),THORSURG,false,
+308251003,Admission to clinical oncology department (procedure),ONC,false,
+305432006,Admission to surgical transplant department (procedure),TRANSPLANT,true,Transplant (always planned)
+56876005,Drug rehabilitation and detoxification (regime/therapy),ADDICT,true,Rehabilitation programme (always planned)
+183495009,Non-urgent orthopedic admission (procedure),ORTHO,true,Elective admission
+185389009,Follow-up visit (procedure),GENMED,true,Scheduled follow-up

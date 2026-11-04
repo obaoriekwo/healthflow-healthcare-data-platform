@@ -1,0 +1,12 @@
+reason_code,reason_description,department_code,is_planned,planned_reason
+424132000,Non-small cell carcinoma of lung TNM stage 1 (disorder),ONC,true,Scheduled cancer treatment cycle
+67811000119102,Primary small cell malignant neoplasm of lung TNM stage 1 (disorder),ONC,true,Scheduled cancer treatment cycle
+254837009,Malignant neoplasm of breast (disorder),ONC,true,Scheduled cancer treatment cycle
+363406005,Malignant neoplasm of colon (disorder),ONC,true,Scheduled cancer treatment cycle
+109838007,Overlapping malignant neoplasm of colon (disorder),ONC,true,Scheduled cancer treatment cycle
+109989006,Multiple myeloma (disorder),ONC,true,Scheduled cancer treatment cycle
+93143009,Leukemia disease (disorder),ONC,true,Scheduled cancer treatment cycle
+183996000,Sterilization requested (situation),SURG,true,Elective procedure
+39898005,Sleep disorder (disorder),GENMED,true,Scheduled diagnostic admission (sleep study)
+74400008,Appendicitis (disorder),SURG,false,
+79586000,Tubal pregnancy (disorder),SURG,false,

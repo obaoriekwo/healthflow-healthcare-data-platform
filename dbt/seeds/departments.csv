@@ -1,0 +1,11 @@
+department_code,department_name,service_line,is_critical_care
+GENMED,General Medicine,Medicine,false
+INFDIS,Infectious Diseases,Medicine,false
+ONC,Clinical Oncology,Medicine,false
+ADDICT,Addiction Services,Mental Health,false
+ICU,Intensive Care Unit,Critical Care,true
+SURG,General Surgery,Surgery,false
+THORSURG,Thoracic Surgery,Surgery,false
+TRANSPLANT,Transplant Surgery,Surgery,false
+ORTHO,Orthopaedics,Surgery,false
+UNMAPPED,Unmapped admission type,Unknown,false

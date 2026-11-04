@@ -1,0 +1,88 @@
+# HealthFlow local development stack (Phase 0)
+#
+#   airflow-db    Airflow metadata database (never holds healthcare data)
+#   warehouse-db  Analytical warehouse: raw_staging -> staging -> intermediate -> marts
+#   azurite       Local Azure Blob Storage emulator used as the Bronze layer
+#   airflow       Airflow 3 in standalone mode (scheduler + API server + DAG processor)
+#
+# Start:  docker compose up -d --build
+# UI:     http://localhost:8080   (no login locally; see SIMPLE_AUTH_MANAGER_ALL_ADMINS)
+
+name: healthflow
+
+services:
+  airflow-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 5s
+      retries: 10
+
+  warehouse-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${WAREHOUSE_USER:-healthflow}
+      POSTGRES_PASSWORD: ${WAREHOUSE_PASSWORD:-healthflow}
+      POSTGRES_DB: ${WAREHOUSE_DB:-healthflow_warehouse}
+    ports:
+      - "5433:5432" # 5433 on your machine so it never clashes with a local Postgres
+    volumes:
+      - warehouse-db-data:/var/lib/postgresql/data
+      # Runs once, on first start of an empty volume. scripts/init_warehouse.py applies the same files idempotently.
+      - ./sql/ddl:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${WAREHOUSE_USER:-healthflow} -d ${WAREHOUSE_DB:-healthflow_warehouse}"]
+      interval: 5s
+      retries: 10
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.37.0
+    # Blob service only. --skipApiVersionCheck lets newer azure-storage-blob SDKs talk to the emulator.
+    command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data --skipApiVersionCheck
+    ports:
+      - "10000:10000"
+    volumes:
+      - azurite-data:/data
+
+  airflow:
+    build:
+      context: .
+      dockerfile: docker/airflow.Dockerfile
+    command: standalone
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+      warehouse-db:
+        condition: service_healthy
+      azurite:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true" # local development only
+      PYTHONPATH: /opt/healthflow
+      # HealthFlow settings (read by ingestion/config.py)
+      WAREHOUSE_DSN: postgresql://${WAREHOUSE_USER:-healthflow}:${WAREHOUSE_PASSWORD:-healthflow}@warehouse-db:5432/${WAREHOUSE_DB:-healthflow_warehouse}
+      STORAGE_BACKEND: azure
+      AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
+      AZURE_STORAGE_CONTAINER: healthflow-data
+      LANDING_DIR: /opt/healthflow/data/landing
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./ingestion:/opt/healthflow/ingestion
+      - ./sql:/opt/healthflow/sql:ro
+      - ./data:/opt/healthflow/data
+
+volumes:
+  airflow-db-data:
+  warehouse-db-data:
+  azurite-data:
