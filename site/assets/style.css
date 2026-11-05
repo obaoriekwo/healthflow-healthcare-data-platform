@@ -118,6 +118,11 @@ select {
 .card .sub { color: var(--ink-2); font-size: 13px; margin: 0 0 10px; }
 .chart { position: relative; height: 240px; }
 .card.wide { grid-column: 1 / -1; }
+.callout {
+  margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; background: var(--surface-2);
+  font-size: 14px; color: var(--ink);
+}
+.callout:empty { display: none; }
 details { margin-top: 8px; font-size: 13px; }
 details summary { color: var(--ink-2); cursor: pointer; }
 .scroll { overflow-x: auto; }

@@ -134,6 +134,22 @@
 
     const measurable = new Set(D.readmission_months);
     const rate = s.index_stays.map((n, i) => (measurable.has(D.months[i]) && n ? round1(pct(s.readmissions[i], n)) : null));
+    // Plain-English summary, so a flat line at 0% reads as a result, not a broken chart.
+    let idxTotal = 0, readmTotal = 0;
+    D.months.forEach((m, i) => { if (measurable.has(m)) { idxTotal += s.index_stays[i]; readmTotal += s.readmissions[i]; } });
+    let summary;
+    if (!idxTotal) {
+      summary = `No eligible stays for ${scope} in this period, so there is no rate to show.`;
+    } else if (!readmTotal) {
+      summary = `${scope}: no unplanned readmissions within 30 days across ${nf.format(idxTotal)} eligible stays (0%).`;
+    } else {
+      summary = `${scope}: ${nf.format(readmTotal)} unplanned readmission${readmTotal === 1 ? "" : "s"} across ` +
+        `${nf.format(idxTotal)} eligible stays (${round1(pct(readmTotal, idxTotal)).toFixed(1)}%).`;
+    }
+    if (code === "ONC" || code === "ADDICT") {
+      summary += " Most stays here are scheduled treatment cycles, so returning for the next cycle is planned and doesn't count.";
+    }
+    text("readm-summary", summary.charAt(0).toUpperCase() + summary.slice(1));
     draw("c-readm", { type: "line", data: { labels, datasets: [line(blue, rate, true)] },
       options: baseOptions("% readmitted", {
         suggestedMax: 10,
