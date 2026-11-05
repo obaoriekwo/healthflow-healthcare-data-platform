@@ -229,6 +229,25 @@ def dashboard_data(conn, months: list[date], data_through: date, window_days: in
     }
 
 
+def kpi_placeholders(k: dict) -> dict[str, str]:
+    """Headline figures written into the HTML, so they show without JavaScript (and to crawlers)."""
+
+    def pct(n: int, d: int) -> str:
+        return f"{100 * n / d:.1f}%" if d else "–"
+
+    return {
+        "{{KPI_ENCOUNTERS}}": f"{k['encounters']:,}",
+        "{{KPI_PATIENTS}}": f"{k['patients']:,} patients",
+        "{{KPI_STAYS}}": f"{k['stays']:,}",
+        "{{KPI_STAYS_NOTE}}": f"{k['planned_stays']:,} planned, {k['stays'] - k['planned_stays']:,} unplanned",
+        "{{KPI_LOS}}": f"{k['avg_los']:.1f} days",
+        "{{KPI_READM}}": pct(k["readmissions"], k["index_stays"]),
+        "{{KPI_READM_NOTE}}": f"{k['readmissions']:,} of {k['index_stays']:,} eligible stays",
+        "{{KPI_ED}}": pct(k["ed_within_4h"], k["ed_visits"]),
+        "{{KPI_ED_NOTE}}": f"of {k['ed_visits']:,} emergency visits",
+    }
+
+
 def dbt_results(path: Path) -> dict:
     results = json.loads(path.read_text())
     out = {"models": 0, "seeds": 0, "tests": 0, "passed": 0, "failed": 0, "warned": 0, "rules": [], "elapsed": 0.0}
@@ -324,7 +343,7 @@ def banner(meta: dict, checks: dict, prefix: str = "") -> str:
 
 def footer(repo: str) -> str:
     return f"""<footer class="wrap">
-  HealthFlow is a portfolio project: an ELT platform built with Python, PostgreSQL, dbt, Airflow and GitHub Actions.
+  HealthFlow is a portfolio project: an ELT platform built with Python, PostgreSQL and dbt, rebuilt nightly by GitHub Actions.
   All patient data is synthetic, generated with Synthea; no real patient data is used.
   <a href="https://github.com/{e(repo)}">Source code and documentation</a>.
 </footer>"""
@@ -516,6 +535,7 @@ def main() -> None:
         "{{WINDOW_FROM}}": fmt_date(months[0]),
         "{{WINDOW_TO}}": fmt_date(month_end(months[-1])),
         "{{REPO}}": e(repo),
+        **kpi_placeholders(data["kpis"]),
         "{{CHARTJS_SRC}}": e(args.chartjs_src),
     }.items():
         index = index.replace(key, value)

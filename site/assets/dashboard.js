@@ -25,6 +25,15 @@
   text("kpi-ed", round1(pct(k.ed_within_4h, k.ed_visits)).toFixed(1) + "%");
   text("kpi-ed-note", "of " + nf.format(k.ed_visits) + " emergency visits");
 
+  // ---- Charts need Chart.js from the CDN: say so clearly if it didn't load -------
+  if (typeof window.Chart === "undefined") {
+    const msg = el("load-error");
+    msg.hidden = false;
+    msg.textContent = "The charts could not load (the charting library was blocked or the network is offline). " +
+      "The headline figures above are still current; the data behind each chart is in the department table below.";
+    document.querySelectorAll(".chart").forEach((c) => { c.style.display = "none"; });
+  }
+
   // ---- Department filter -----------------------------------------------------
   const select = el("dept");
   D.departments.forEach((d) => {
@@ -192,8 +201,12 @@
       nf.format(r.critical_care), r.index_stays ? `${r.readmissions} of ${r.index_stays}` : "–",
     ]));
 
-  function renderAll() { renderDeptCharts(); renderHospitalCharts(); }
-  select.addEventListener("change", renderDeptCharts);
+  function renderAll() {
+    if (typeof window.Chart === "undefined") return;
+    renderDeptCharts();
+    renderHospitalCharts();
+  }
+  select.addEventListener("change", renderAll);
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
   renderAll();
 })();

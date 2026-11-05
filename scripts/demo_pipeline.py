@@ -77,7 +77,7 @@ def main() -> None:
     generated = generate(args.synthea_csv_dir, landing, from_date=from_date, to_date=to_date, faults=True)
     for entity, (records, files) in generated.items():
         print(f"simulated {entity}: {records} records in {files} daily files")
-    last_day = max(date.fromisoformat(p.name.split("=")[1]) for p in (landing / "encounters").iterdir())
+    last_day = to_date  # the simulator never delivers after the window ends
 
     storage = LocalStorageClient(lake)
     with connect(dsn) as conn:

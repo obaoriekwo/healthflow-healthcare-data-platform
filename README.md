@@ -7,8 +7,19 @@
 ### 👉 [Live demo: obaoriekwo.github.io/healthflow-healthcare-data-platform](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/)
 
 An ELT platform that turns fragmented hospital data into tested, analysis-ready models.
-Python ingests source files into an immutable Bronze layer on Azure storage and a PostgreSQL
-warehouse; dbt transforms them into a dimensional model; Airflow orchestrates; Power BI reports.
+Python ingests daily source files into an immutable Bronze layer and a PostgreSQL warehouse;
+dbt transforms them into a dimensional model with 85 data tests.
+
+**What runs where, today:**
+
+| | Status |
+| --- | --- |
+| **Live, every night** | GitHub Actions orchestrates the full rebuild (simulate → ingest → replay → dbt → publish) on a fresh PostgreSQL. |
+| **Built and tested locally** | Airflow 3 DAG for daily ingestion (Docker Compose); Bronze through the Azure Blob API, tested against Azurite, Microsoft's storage emulator. |
+| **Not yet done** | Airflow running dbt (Cosmos) as the production orchestrator; deployment to real Azure (ADLS Gen2, Azure Database for PostgreSQL, Key Vault, Terraform); Power BI report. |
+
+The storage layer is **Azure-ready, not Azure-deployed**: the same code switches to a real
+storage account with one connection string, but that has not been run against Azure yet.
 
 **All data is synthetic** (generated with [Synthea](https://github.com/synthetichealth/synthea)).
 No real patient data is used anywhere in this project.

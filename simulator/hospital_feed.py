@@ -59,16 +59,25 @@ def generate(
         patient_rows, encounters, to_date=to_date, seed=seed, max_lag_days=max_lag_days
     )
 
+    # Nothing can be delivered after to_date: that is "today" for the simulated hospital.
+    # Records whose delivery would fall later (patients still in hospital, late arrivals,
+    # corrections not yet made) have simply not been sent yet.
+    not_yet_sent = {}
+    for entity, feed in ((encounter_feed.ENTITY, encounters), (patient_feed.ENTITY, patients)):
+        future = [d for d in feed if d > to_date]
+        not_yet_sent[entity] = sum(len(feed.pop(d)) for d in future)
+
     # Both systems deliver a file every day over the same range.
-    last_day = max([*encounters, *patients, to_date])
     feeds = {
-        encounter_feed.ENTITY: (fill_days(encounters, from_date, last_day), [*enc_columns, UPDATED_AT_COLUMN]),
-        patient_feed.ENTITY: (fill_days(patients, from_date, last_day), patient_feed.FIELDNAMES),
+        encounter_feed.ENTITY: (fill_days(encounters, from_date, to_date), [*enc_columns, UPDATED_AT_COLUMN]),
+        patient_feed.ENTITY: (fill_days(patients, from_date, to_date), patient_feed.FIELDNAMES),
     }
     result = {}
     for entity, (feed, fieldnames) in feeds.items():
         paths = write_feed(feed, landing_dir, entity, fieldnames)
         result[entity] = (sum(len(rows) for rows in feed.values()), len(paths))
+        if not_yet_sent[entity]:
+            print(f"{entity}: {not_yet_sent[entity]} records not sent yet (delivery due after {to_date})")
         if faults and entity == encounter_feed.ENTITY:
             injected = inject_faults(feed, landing_dir, entity, fieldnames, seed=seed)
             print(

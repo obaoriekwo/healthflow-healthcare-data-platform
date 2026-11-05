@@ -21,12 +21,16 @@
   </p>
 
   <section class="tiles" aria-label="Headline figures">
-    <div class="tile"><div class="label">Encounters</div><div class="value" id="kpi-encounters">–</div><div class="note" id="kpi-patients"></div></div>
-    <div class="tile"><div class="label">Hospital stays</div><div class="value" id="kpi-stays">–</div><div class="note" id="kpi-stays-note"></div></div>
-    <div class="tile"><div class="label">Average length of stay</div><div class="value" id="kpi-los">–</div><div class="note">Admission to final discharge, transfers merged</div></div>
-    <div class="tile"><div class="label">30-day readmission rate</div><div class="value" id="kpi-readm">–</div><div class="note" id="kpi-readm-note"></div></div>
-    <div class="tile"><div class="label">ED patients within 4 hours</div><div class="value" id="kpi-ed">–</div><div class="note" id="kpi-ed-note"></div></div>
+    <div class="tile"><div class="label">Encounters</div><div class="value" id="kpi-encounters">{{KPI_ENCOUNTERS}}</div><div class="note" id="kpi-patients">{{KPI_PATIENTS}}</div></div>
+    <div class="tile"><div class="label">Hospital stays</div><div class="value" id="kpi-stays">{{KPI_STAYS}}</div><div class="note" id="kpi-stays-note">{{KPI_STAYS_NOTE}}</div></div>
+    <div class="tile"><div class="label">Average length of stay</div><div class="value" id="kpi-los">{{KPI_LOS}}</div><div class="note">Admission to final discharge, transfers merged</div></div>
+    <div class="tile"><div class="label">30-day readmission rate</div><div class="value" id="kpi-readm">{{KPI_READM}}</div><div class="note" id="kpi-readm-note">{{KPI_READM_NOTE}}</div></div>
+    <div class="tile"><div class="label">ED patients within 4 hours</div><div class="value" id="kpi-ed">{{KPI_ED}}</div><div class="note" id="kpi-ed-note">{{KPI_ED_NOTE}}</div></div>
   </section>
+
+  <noscript><p class="callout">The charts need JavaScript. The headline figures above, the
+    <a href="pipeline.html">pipeline status</a> and the <a href="model/index.html">data model</a> work without it.</p></noscript>
+  <p class="callout" id="load-error" hidden></p>
 
   <div class="filters">
     <label for="dept">Department</label>

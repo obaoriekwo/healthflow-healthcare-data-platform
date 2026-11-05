@@ -128,3 +128,12 @@ Readmission rates are shown only for discharge months whose 30-day follow-up is 
 judges completeness from the latest *event* date, not the latest *delivery* date: deliveries keep
 arriving for days after the last event (late arrivals), and the first version of the live demo
 showed a misleading 33% spike for the most recent month because of exactly this.
+
+## ADR-013: Nothing is delivered after the simulated "today"
+
+The simulator sends each encounter after discharge plus a delay. Stays still open when the
+window ends (long hospice and nursing-home episodes, late arrivals, pending corrections) were
+being written as deliveries dated weeks into the future, so the pipeline page showed deliveries
+through late December while the dashboard ended in October. An external review spotted it.
+A real source cannot send tomorrow's file: the window's last day is now the last delivery day,
+and records due later are reported as "not sent yet". Covered by a regression test.
