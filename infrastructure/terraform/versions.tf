@@ -18,6 +18,11 @@ terraform {
 }
 
 provider "azurerm" {
+  # Don't let Terraform register ~40 resource providers on its own: student and other
+  # restricted subscriptions can't, and HealthFlow needs only Microsoft.Storage,
+  # Microsoft.KeyVault and Microsoft.DBforPostgreSQL (see docs/azure_deployment.md).
+  resource_provider_registrations = "none"
+
   features {
     key_vault {
       purge_soft_delete_on_destroy = true # demo: `terraform destroy` really removes the vault

@@ -60,6 +60,8 @@ resource "azurerm_storage_container" "bronze" {
 # --- Warehouse: Azure Database for PostgreSQL ---------------------------------------------
 
 resource "azurerm_postgresql_flexible_server" "warehouse" {
+  count = var.deploy_postgres ? 1 : 0
+
   name                          = "psql-${local.name}"
   resource_group_name           = azurerm_resource_group.main.name
   location                      = azurerm_resource_group.main.location
@@ -78,15 +80,19 @@ resource "azurerm_postgresql_flexible_server" "warehouse" {
 }
 
 resource "azurerm_postgresql_flexible_server_database" "warehouse" {
+  count = var.deploy_postgres ? 1 : 0
+
   name      = "healthflow_warehouse"
-  server_id = azurerm_postgresql_flexible_server.warehouse.id
+  server_id = azurerm_postgresql_flexible_server.warehouse[0].id
   charset   = "UTF8"
   collation = "en_US.utf8"
 }
 
 resource "azurerm_postgresql_flexible_server_firewall_rule" "you" {
+  count = var.deploy_postgres ? 1 : 0
+
   name             = "allow-deployer"
-  server_id        = azurerm_postgresql_flexible_server.warehouse.id
+  server_id        = azurerm_postgresql_flexible_server.warehouse[0].id
   start_ip_address = var.allowed_ip
   end_ip_address   = var.allowed_ip
 }
@@ -111,19 +117,23 @@ resource "azurerm_key_vault" "main" {
 }
 
 resource "azurerm_key_vault_secret" "warehouse_dsn" {
+  count = var.deploy_postgres ? 1 : 0
+
   name         = "warehouse-dsn"
   key_vault_id = azurerm_key_vault.main.id
 
   value = format(
     "postgresql://%s:%s@%s:5432/%s?sslmode=require",
-    azurerm_postgresql_flexible_server.warehouse.administrator_login,
+    azurerm_postgresql_flexible_server.warehouse[0].administrator_login,
     random_password.warehouse.result,
-    azurerm_postgresql_flexible_server.warehouse.fqdn,
-    azurerm_postgresql_flexible_server_database.warehouse.name,
+    azurerm_postgresql_flexible_server.warehouse[0].fqdn,
+    azurerm_postgresql_flexible_server_database.warehouse[0].name,
   )
 }
 
 resource "azurerm_key_vault_secret" "warehouse_password" {
+  count = var.deploy_postgres ? 1 : 0
+
   name         = "warehouse-password"
   key_vault_id = azurerm_key_vault.main.id
   value        = random_password.warehouse.result
@@ -138,6 +148,8 @@ resource "azurerm_key_vault_secret" "storage_connection_string" {
 # --- Cost control -----------------------------------------------------------------------------
 
 resource "azurerm_consumption_budget_resource_group" "main" {
+  count = var.deploy_budget ? 1 : 0
+
   name              = "budget-${local.name}"
   resource_group_id = azurerm_resource_group.main.id
   amount            = var.budget_eur

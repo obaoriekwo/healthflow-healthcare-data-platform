@@ -34,7 +34,28 @@ az login --use-device-code          # sign in with the account that has your Azu
 az account show --query "{name:name, id:id}" -o table
 ```
 
-## 2. Deploy
+## 2. Check the subscription can use the three services
+
+```bash
+for p in Microsoft.Storage Microsoft.KeyVault Microsoft.DBforPostgreSQL; do
+  echo "$p: $(az provider show -n $p --query registrationState -o tsv)"
+done
+```
+
+All three should say `Registered`. If one says `NotRegistered`, run
+`az provider register --namespace <name>` and wait a minute. Restricted subscriptions (for
+example some school-managed *Azure for Students* subscriptions) may not allow registering.
+If `Microsoft.DBforPostgreSQL` stays unregistered, deploy without the database
+(`deploy_postgres = false` in `terraform.tfvars`): Bronze goes to ADLS Gen2 and secrets to Key
+Vault, and the warehouse stays in your Codespace's PostgreSQL. Ask your Azure administrator to
+register the provider if you need the full deployment. If the budget fails to create on your
+subscription type, set `deploy_budget = false`.
+
+**If your organisation blocks `az login` from a Codespace** (device-code sign-in is often
+restricted), use **Azure Cloud Shell** in the portal instead: it is already signed in and has
+Terraform installed. Run steps 2-3 there, then copy the settings to your Codespace (step 4).
+
+## 3. Deploy
 
 ```bash
 cd infrastructure/terraform
@@ -44,10 +65,28 @@ terraform plan -out tfplan                     # read it: 10 resources to add, n
 terraform apply tfplan                         # about 5-10 minutes (the database is the slow part)
 ```
 
-## 3. Run the pipeline against Azure
+## 4. Run the pipeline against Azure
+
+Where `az` is signed in (Codespace or Cloud Shell), load the settings from Key Vault:
 
 ```bash
 eval "$(terraform output -raw load_settings)"  # secrets come from Key Vault, not from files
+```
+
+If the pipeline runs somewhere else (for example, Terraform ran in Cloud Shell and the pipeline
+runs in your Codespace), print the settings, then paste them into the other terminal. They are
+secrets: paste them only into your own terminal, never into chats, issues or commits.
+
+```bash
+for v in STORAGE_BACKEND AZURE_STORAGE_CONTAINER AZURE_STORAGE_CONNECTION_STRING WAREHOUSE_DSN \
+         WAREHOUSE_HOST WAREHOUSE_PORT WAREHOUSE_SSLMODE WAREHOUSE_USER WAREHOUSE_DB WAREHOUSE_PASSWORD; do
+  [ -n "${!v}" ] && printf "export %s='%s'\n" "$v" "${!v}"
+done
+```
+
+Then, in the terminal that runs the pipeline:
+
+```bash
 cd ../..
 python scripts/demo_pipeline.py --synthea-csv-dir data/synthea/output/csv --reset
 .dbt-venv/bin/dbt build --project-dir dbt --profiles-dir dbt
@@ -56,7 +95,7 @@ python scripts/demo_pipeline.py --synthea-csv-dir data/synthea/output/csv --rese
 `demo_pipeline.py` prints `Bronze storage: AzureBlobStorageClient`: every delivery is written to
 ADLS Gen2, and the warehouse is Azure Database for PostgreSQL.
 
-## 4. Capture the evidence (for the README)
+## 5. Capture the evidence (for the README)
 
 ```bash
 az storage fs file list --account-name "$(terraform -chdir=infrastructure/terraform output -raw storage_account)" \
@@ -70,7 +109,7 @@ Take screenshots of: the resource group in the Azure portal, the `bronze/` folde
 account's **Storage browser**, the `dbt build` summary, and the two query results above.
 Save them in `docs/images/azure-*.png`.
 
-## 5. Destroy
+## 6. Destroy
 
 ```bash
 cd infrastructure/terraform && terraform destroy

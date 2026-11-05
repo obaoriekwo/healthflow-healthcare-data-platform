@@ -50,3 +50,15 @@ variable "tags" {
     data        = "synthetic-only"
   }
 }
+
+variable "deploy_postgres" {
+  description = "Create Azure Database for PostgreSQL. Set to false if the subscription cannot enable Microsoft.DBforPostgreSQL; the warehouse then stays outside Azure."
+  type        = bool
+  default     = true
+}
+
+variable "deploy_budget" {
+  description = "Create the budget alert. Some subscription types (e.g. some student offers) do not support budgets."
+  type        = bool
+  default     = true
+}
