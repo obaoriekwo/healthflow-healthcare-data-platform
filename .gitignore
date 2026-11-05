@@ -44,3 +44,4 @@ dbt/logs/
 # Live demo build output
 _site/
 data/demo/
+tfplan

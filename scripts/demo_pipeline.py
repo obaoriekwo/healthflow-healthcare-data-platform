@@ -33,8 +33,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from ingestion.config import load_settings  # noqa: E402
 from ingestion.db import apply_ddl, connect  # noqa: E402
 from ingestion.pipeline import run_ingestion  # noqa: E402
+from ingestion.storage import get_storage  # noqa: E402
 from ingestion.storage.local_storage import LocalStorageClient  # noqa: E402
 from simulator.hospital_feed import generate  # noqa: E402
 
@@ -86,7 +88,11 @@ def main() -> None:
     last_day = to_date  # the simulator never delivers after the window ends
     ingest_until = last_day - timedelta(days=1) if args.leave_last_day else last_day
 
-    storage = LocalStorageClient(lake)
+    # Bronze goes to a local folder by default; with STORAGE_BACKEND=azure it goes to Azure
+    # Blob / ADLS Gen2 (Azurite locally, a real storage account in Azure).
+    settings = load_settings()
+    storage = get_storage(settings) if settings.storage_backend == "azure" else LocalStorageClient(lake)
+    print(f"Bronze storage: {type(storage).__name__}")
     with connect(dsn) as conn:
         if args.reset:
             for schema in SCHEMAS:

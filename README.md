@@ -3,6 +3,7 @@
 [![Live demo](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/live-demo.yml/badge.svg)](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/live-demo.yml)
 [![Python CI](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/python-ci.yml/badge.svg)](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/python-ci.yml)
 [![dbt CI](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/dbt-ci.yml/badge.svg)](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/dbt-ci.yml)
+[![Terraform CI](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/terraform-ci.yml/badge.svg)](https://github.com/obaoriekwo/healthflow-healthcare-data-platform/actions/workflows/terraform-ci.yml)
 
 ### 👉 [Live demo: obaoriekwo.github.io/healthflow-healthcare-data-platform](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/)
 
@@ -16,7 +17,8 @@ dbt transforms them into a dimensional model with 85 data tests.
 | --- | --- |
 | **Live, every night** | GitHub Actions rebuilds everything on a fresh PostgreSQL: a year of history is ingested by script, then the **Airflow 3 DAG processes the final day** — ingestion, every dbt seed, model and test as its own task (Astronomer Cosmos), and cross-layer reconciliation — and the results are published. |
 | **Built for local use** | A Docker Compose stack for the same DAG (Airflow 3 image with Cosmos and a separate dbt environment); Bronze through the Azure Blob API, tested against Azurite, Microsoft's storage emulator. |
-| **Not yet done** | Deployment to real Azure (ADLS Gen2, Azure Database for PostgreSQL, Key Vault, Terraform); Power BI report. |
+| **Ready, not yet run** | Terraform for Azure (ADLS Gen2, Azure Database for PostgreSQL, Key Vault, budget alerts), validated in CI on every change. Deploying it needs an Azure subscription: [docs/azure_deployment.md](docs/azure_deployment.md). |
+| **Not yet done** | Power BI report. |
 
 The storage layer is **Azure-ready, not Azure-deployed**: the same code switches to a real
 storage account with one connection string, but that has not been run against Azure yet.
@@ -60,7 +62,7 @@ Workflow: [`.github/workflows/live-demo.yml`](.github/workflows/live-demo.yml).
 | 3 | dbt: staging, intermediate, star schema, KPI marts, 85 tests | ✅ |
 | 4 | Airflow runs dbt (Cosmos), data tests per model, reconciliation; part of the nightly live demo | ✅ |
 | 5 | GitHub Actions: Python CI, dbt CI, nightly live demo on GitHub Pages | ✅ |
-| 6 | Azure + Terraform | ⏳ next |
+| 6 | Azure + Terraform: code written and validated in CI ([guide](docs/azure_deployment.md)); deployment needs an Azure subscription | 🟡 |
 | 7 | Power BI + documentation | ⏳ |
 
 ## How data flows
@@ -185,6 +187,6 @@ scripts/           Synthea generation, incremental check, live demo pipeline and
 site/              Live demo page templates and assets
 tests/             Python unit and integration tests
 docs/              Architecture decisions, readmission definition
-infrastructure/    Phase 6 (Terraform)
+infrastructure/    Terraform for Azure (Phase 6)
 dashboard/         Phase 7 (Power BI)
 ```

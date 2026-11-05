@@ -11,4 +11,5 @@ healthflow:
       password: "{{ env_var('WAREHOUSE_PASSWORD', 'healthflow') }}"
       dbname: "{{ env_var('WAREHOUSE_DB', 'healthflow_warehouse') }}"
       schema: public
+      sslmode: "{{ env_var('WAREHOUSE_SSLMODE', 'prefer') }}"  # 'require' for Azure Database for PostgreSQL
       threads: 4
