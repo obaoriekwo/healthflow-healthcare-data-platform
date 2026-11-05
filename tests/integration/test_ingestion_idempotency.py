@@ -207,3 +207,39 @@ def test_identical_empty_files_on_different_days_are_separate_deliveries(warehou
     assert _scalar(warehouse, "SELECT count(*) FROM audit.ingestion_file_audit") == 2
     assert _scalar(warehouse, "SELECT latest_available_date FROM audit.source_freshness") == days[1]
     assert _ingest(warehouse, storage, tmp_path, days[1]).count("skipped") == 1  # same day again: still a no-op
+
+
+def test_reconciliation_passes_then_catches_a_missing_gold_row(warehouse, storage, landing):
+    from ingestion.checks import ReconciliationError, record_and_raise, run_checks
+
+    landing_dir, feed, _ = landing
+    days = sorted(feed)[:5]
+    for day in days:
+        _ingest(warehouse, storage, landing_dir, day)
+    # Stand-in for the dbt fact table: one row per distinct encounter received.
+    warehouse.execute("CREATE SCHEMA IF NOT EXISTS marts")
+    warehouse.execute("DROP TABLE IF EXISTS marts.fact_encounters")
+    warehouse.execute(
+        "CREATE TABLE marts.fact_encounters AS SELECT DISTINCT id AS encounter_id FROM raw_staging.encounters"
+    )
+
+    results = run_checks(warehouse, process_date=days[-1], landing_dir=landing_dir)
+    names = {r.name for r in results}
+    assert {"delivery_encounters", "rows_encounters", "encounters_source_to_gold"} <= names
+    failing = {r.name for r in results if not r.passed}
+    assert failing == {"freshness_patients"}  # this fixture only delivers encounters
+
+    good = [r for r in results if r.name.endswith("encounters") or r.name == "encounters_source_to_gold"]
+    record_and_raise(warehouse, good, run_id="run-ok", process_date=days[-1])
+
+    warehouse.execute(
+        "DELETE FROM marts.fact_encounters WHERE encounter_id = (SELECT min(encounter_id) FROM marts.fact_encounters)"
+    )
+    results = [
+        r
+        for r in run_checks(warehouse, process_date=days[-1], landing_dir=landing_dir)
+        if r.name == "encounters_source_to_gold"
+    ]
+    with pytest.raises(ReconciliationError, match="encounters_source_to_gold"):
+        record_and_raise(warehouse, results, run_id="run-bad", process_date=days[-1])
+    assert _scalar(warehouse, "SELECT passed FROM audit.reconciliation_audit WHERE run_id = 'run-bad'") is False

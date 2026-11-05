@@ -1,0 +1,3 @@
+# Installed into Airflow's own environment, against Airflow's constraints file.
+# Pinned as a set with Airflow 3.2.2 (docker/airflow.Dockerfile, live-demo.yml). See ADR-005.
+astronomer-cosmos==1.16.0

@@ -9,6 +9,7 @@
 2. Simulates a year of daily deliveries, with faults injected (a schema-drifted
    re-send and a few corrupt rows) so the quarantine has something to catch.
 3. Ingests every day in order, patients then encounters, as the Airflow DAG does.
+   With --leave-last-day the final day is left for the Airflow DAG to process.
 4. Replays every day a second time and checks the warehouse did not change.
 5. Writes a summary to dbt/target/demo_pipeline.json for scripts/build_site.py.
 
@@ -57,6 +58,11 @@ def main() -> None:
     parser.add_argument("--work-dir", type=Path, default=ROOT / "data" / "demo")
     parser.add_argument("--months", type=int, default=12, help="Complete months to simulate")
     parser.add_argument("--reset", action="store_true", help="Drop and recreate the HealthFlow schemas first")
+    parser.add_argument(
+        "--leave-last-day",
+        action="store_true",
+        help="Do not ingest the final day, so the Airflow DAG can process it (the live demo does this)",
+    )
     parser.add_argument("--summary", type=Path, default=ROOT / "dbt" / "target" / "demo_pipeline.json")
     args = parser.parse_args()
 
@@ -78,6 +84,7 @@ def main() -> None:
     for entity, (records, files) in generated.items():
         print(f"simulated {entity}: {records} records in {files} daily files")
     last_day = to_date  # the simulator never delivers after the window ends
+    ingest_until = last_day - timedelta(days=1) if args.leave_last_day else last_day
 
     storage = LocalStorageClient(lake)
     with connect(dsn) as conn:
@@ -89,7 +96,7 @@ def main() -> None:
         def ingest_all(label: str) -> dict[str, int]:
             totals = {"runs": 0, "files_loaded": 0, "files_skipped": 0, "files_quarantined": 0, "rows_loaded": 0}
             day = from_date
-            while day <= last_day:
+            while day <= ingest_until:
                 for source in SOURCES:
                     summary = run_ingestion(
                         conn,
@@ -129,6 +136,7 @@ def main() -> None:
                     "from": from_date.isoformat(),
                     "to": to_date.isoformat(),
                     "last_delivery": last_day.isoformat(),
+                    "ingested_by_script_until": ingest_until.isoformat(),
                 },
                 "simulated": {k: {"records": v[0], "files": v[1]} for k, v in generated.items()},
                 "first_pass": {**first, "seconds": load_seconds},

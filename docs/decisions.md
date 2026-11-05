@@ -137,3 +137,19 @@ being written as deliveries dated weeks into the future, so the pipeline page sh
 through late December while the dashboard ended in October. An external review spotted it.
 A real source cannot send tomorrow's file: the window's last day is now the last delivery day,
 and records due later are reported as "not sent yet". Covered by a regression test.
+
+## ADR-014: Airflow runs dbt through Cosmos, one task per node
+
+The `healthflow_daily` DAG renders the dbt project with Astronomer Cosmos (`DbtTaskGroup`):
+each seed, model and test becomes its own Airflow task, so a failure shows exactly which model
+or test broke and can be retried alone, and lineage is visible in the Airflow graph.
+
+- Tests run right after their model (`TestBehavior.AFTER_EACH`); tests that span several models
+  (the business rules) are detached into their own tasks; source tests and freshness are rendered.
+- dbt runs from its own virtual environment (`DBT_EXECUTABLE`, subprocess invocation), because
+  dbt's dependencies conflict with Airflow's. Airflow 3.2.2, Cosmos 1.16.0, dbt-core 1.12.6 and
+  dbt-postgres 1.11.0 are pinned together.
+- After dbt, `reconcile` compares layers (landing files → audit → raw → gold) and writes each check
+  to `audit.reconciliation_audit`; a mismatch fails the run.
+- The nightly live demo runs the final day through this DAG with `airflow dags test` (a complete
+  DAG run in-process, no scheduler needed), so every published build is proof the DAG works.

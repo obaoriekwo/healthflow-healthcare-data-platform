@@ -1,5 +1,6 @@
 # Live demo: rebuild the whole platform from scratch every night and publish the results
-# to GitHub Pages. If any step or data test fails, nothing is published and the site
+# to GitHub Pages. A year of history is ingested by script; the final day is processed by
+# the Airflow DAG, which runs dbt through Astronomer Cosmos. If any step or data test fails, nothing is published and the site
 # keeps the last good version.
 #
 # One-time setup: repository Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
@@ -77,20 +78,51 @@ jobs:
         if: steps.synthea-cache.outputs.cache-hit != 'true'
         run: bash scripts/generate_synthea.sh "$PATIENTS" "$SEED"
 
-      - name: Install ingestion and dbt (dbt in its own virtual environment)
+      # Three environments, as in production: ingestion code, dbt, and Airflow (+ Cosmos),
+      # because dbt's dependencies conflict with Airflow's.
+      - name: Install ingestion, dbt and Airflow
         run: |
           pip install -r requirements-ingestion.txt
           python -m venv .dbt-venv
           .dbt-venv/bin/pip install -r requirements-dbt.txt
+          python -m venv .airflow-venv
+          .airflow-venv/bin/pip install "apache-airflow==3.2.2" \
+            -r requirements-ingestion.txt -r requirements-airflow.txt \
+            --constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.2.2/constraints-3.12.txt
 
-      - name: Simulate a year of deliveries, ingest day by day, replay
-        run: python scripts/demo_pipeline.py --synthea-csv-dir data/synthea/output/csv --reset
+      - name: Simulate a year of deliveries, ingest all but the last day, replay
+        run: |
+          python scripts/demo_pipeline.py --synthea-csv-dir data/synthea/output/csv --reset --leave-last-day
+          echo "LAST_DAY=$(python -c "import json; print(json.load(open('dbt/target/demo_pipeline.json'))['window']['last_delivery'])")" >> "$GITHUB_ENV"
 
-      - name: dbt build (all models and data tests)
-        run: .dbt-venv/bin/dbt build --project-dir dbt --profiles-dir dbt
+      # The final day runs through the Airflow DAG: ingestion, every dbt seed/model/test as
+      # its own task (Cosmos), then reconciliation. `dags test` runs one full DAG run
+      # in-process, with no scheduler or web server needed.
+      - name: Airflow DAG run for the final day (ingest, dbt via Cosmos, reconcile)
+        env:
+          AIRFLOW_HOME: ${{ runner.temp }}/airflow
+          AIRFLOW__CORE__DAGS_FOLDER: ${{ github.workspace }}/airflow/dags
+          AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+          PYTHONPATH: ${{ github.workspace }}
+          HEALTHFLOW_DBT_DIR: ${{ github.workspace }}/dbt
+          DBT_EXECUTABLE: ${{ github.workspace }}/.dbt-venv/bin/dbt
+          HEALTHFLOW_DBT_ARTIFACTS: ${{ github.workspace }}/dbt/target/cosmos
+          LANDING_DIR: ${{ github.workspace }}/data/demo/landing
+          STORAGE_BACKEND: local
+          STORAGE_LOCAL_ROOT: ${{ github.workspace }}/data/demo/lake
+        run: |
+          .airflow-venv/bin/airflow db migrate > /dev/null
+          .airflow-venv/bin/airflow dags test healthflow_daily "$LAST_DAY"
 
       - name: dbt docs
         run: .dbt-venv/bin/dbt docs generate --static --project-dir dbt --profiles-dir dbt
+
+      # After docs (which writes its own run_results.json): merge the dbt results kept by
+      # every Cosmos task, and record the DAG run. Fails if any task did not succeed.
+      - name: Export the Airflow run
+        run: >-
+          python scripts/export_airflow_run.py --airflow-db "${{ runner.temp }}/airflow/airflow.db"
+          --artifacts dbt/target/cosmos --out dbt/target
 
       - name: Build the site
         run: python scripts/build_site.py --out _site
@@ -101,6 +133,7 @@ jobs:
             echo "### Live demo built"
             echo
             python -c "import json; d=json.load(open('dbt/target/demo_pipeline.json')); print(f\"Window {d['window']['from']} to {d['window']['to']}. First pass loaded {d['first_pass']['rows_loaded']:,} rows; replay added {d['replay']['rows_loaded']}.\")"
+            python -c "import json; a=json.load(open('dbt/target/airflow_run.json')); print(f\"Airflow DAG run: {a['state']}, tasks {a['by_state']}.\")"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-pages-artifact@v3

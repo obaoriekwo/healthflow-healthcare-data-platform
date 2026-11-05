@@ -76,11 +76,20 @@ services:
       AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://azurite:10000/devstoreaccount1;
       AZURE_STORAGE_CONTAINER: healthflow-data
       LANDING_DIR: /opt/healthflow/data/landing
+      # dbt (run by Cosmos from its own virtual environment; read by dbt/profiles.yml)
+      HEALTHFLOW_DBT_DIR: /opt/healthflow/dbt
+      DBT_EXECUTABLE: /opt/dbt-venv/bin/dbt
+      WAREHOUSE_HOST: warehouse-db
+      WAREHOUSE_PORT: "5432"
+      WAREHOUSE_USER: ${WAREHOUSE_USER:-healthflow}
+      WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-healthflow}
+      WAREHOUSE_DB: ${WAREHOUSE_DB:-healthflow_warehouse}
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./ingestion:/opt/healthflow/ingestion
       - ./sql:/opt/healthflow/sql:ro
       - ./data:/opt/healthflow/data
+      - ./dbt:/opt/healthflow/dbt
 
 volumes:
   airflow-db-data:

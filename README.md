@@ -14,12 +14,20 @@ dbt transforms them into a dimensional model with 85 data tests.
 
 | | Status |
 | --- | --- |
-| **Live, every night** | GitHub Actions orchestrates the full rebuild (simulate → ingest → replay → dbt → publish) on a fresh PostgreSQL. |
-| **Built and tested locally** | Airflow 3 DAG for daily ingestion (Docker Compose); Bronze through the Azure Blob API, tested against Azurite, Microsoft's storage emulator. |
-| **Not yet done** | Airflow running dbt (Cosmos) as the production orchestrator; deployment to real Azure (ADLS Gen2, Azure Database for PostgreSQL, Key Vault, Terraform); Power BI report. |
+| **Live, every night** | GitHub Actions rebuilds everything on a fresh PostgreSQL: a year of history is ingested by script, then the **Airflow 3 DAG processes the final day** — ingestion, every dbt seed, model and test as its own task (Astronomer Cosmos), and cross-layer reconciliation — and the results are published. |
+| **Built for local use** | A Docker Compose stack for the same DAG (Airflow 3 image with Cosmos and a separate dbt environment); Bronze through the Azure Blob API, tested against Azurite, Microsoft's storage emulator. |
+| **Not yet done** | Deployment to real Azure (ADLS Gen2, Azure Database for PostgreSQL, Key Vault, Terraform); Power BI report. |
 
 The storage layer is **Azure-ready, not Azure-deployed**: the same code switches to a real
 storage account with one connection string, but that has not been run against Azure yet.
+
+![The healthflow_daily DAG in Airflow 3: resolve the date, ingest both sources, transform (dbt via Cosmos), reconcile](docs/images/airflow-dag-graph.png)
+
+<details><summary>The same run, task by task</summary>
+
+![Airflow task instances for one healthflow_daily run, all succeeded](docs/images/airflow-dag-run.png)
+
+</details>
 
 **All data is synthetic** (generated with [Synthea](https://github.com/synthetichealth/synthea)).
 No real patient data is used anywhere in this project.
@@ -32,7 +40,8 @@ Every night, GitHub Actions rebuilds the whole platform from an empty database a
 2. Simulates a year of daily deliveries from two hospital systems, with late arrivals, corrections,
    and two deliberate faults: a re-sent file with a renamed column, and a file with unusable rows.
 3. Ingests every day in order, then **replays every day again** and checks that nothing changed.
-4. Runs `dbt build`: all models and 85 data tests.
+4. Runs the final day through the **Airflow DAG**: ingestion, then every dbt seed, model and test as its
+   own Airflow task (Cosmos), then reconciliation checks from landing files to the gold layer.
 5. Publishes three pages: the [dashboard](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/),
    the [pipeline status](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/pipeline.html)
    (deliveries, quarantine log, replay check, test results) and the
@@ -49,9 +58,9 @@ Workflow: [`.github/workflows/live-demo.yml`](.github/workflows/live-demo.yml).
 | 1 | Simulated daily source feeds (encounters, patients), Bronze ingestion, quarantine | ✅ |
 | 2 | Idempotent raw load, file and run audit | ✅ |
 | 3 | dbt: staging, intermediate, star schema, KPI marts, 85 tests | ✅ |
-| 4 | Airflow runs dbt (Cosmos), quality and reconciliation | ⏳ next |
+| 4 | Airflow runs dbt (Cosmos), data tests per model, reconciliation; part of the nightly live demo | ✅ |
 | 5 | GitHub Actions: Python CI, dbt CI, nightly live demo on GitHub Pages | ✅ |
-| 6 | Azure + Terraform | ⏳ |
+| 6 | Azure + Terraform | ⏳ next |
 | 7 | Power BI + documentation | ⏳ |
 
 ## How data flows

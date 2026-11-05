@@ -8,6 +8,7 @@ Reads:
     dbt/target/run_results.json      which models and tests ran, and their status
     dbt/target/static_index.html     dbt docs (from `dbt docs generate --static`)
     dbt/target/demo_pipeline.json    written by scripts/demo_pipeline.py
+    dbt/target/airflow_run.json      written by scripts/export_airflow_run.py (optional)
 
 Writes _site/index.html (dashboard), _site/pipeline.html (pipeline status) and
 _site/model/index.html (dbt docs). Used by .github/workflows/live-demo.yml.
@@ -51,6 +52,8 @@ ICON_BAD = (
     'fill="currentColor"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#fff" stroke-width="1.8" '
     'stroke-linecap="round"/></svg>'
 )
+MATCH = f'<span class="pill good">{ICON_OK}Match</span>'
+MISMATCH = f'<span class="pill bad">{ICON_BAD}Mismatch</span>'
 LOGO = (
     '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" '
     'fill="var(--series-1)"/><path d="M4 13h4l2-5 4 9 2-4h4" stroke="#fff" stroke-width="2" fill="none" '
@@ -274,6 +277,49 @@ def dbt_results(path: Path) -> dict:
     return out
 
 
+def airflow_section(run: dict | None, reconciliation: list[dict], dbt_tests: int) -> str:
+    """The Airflow DAG run that processed the final day, and its reconciliation checks."""
+    if not run:
+        return ""
+    k = run["by_kind"]
+    ok = run["state"] == "success" and set(run["by_state"]) == {"success"}
+    pill = (
+        f'<span class="pill good">{ICON_OK}{len(run["tasks"])} of {len(run["tasks"])} tasks succeeded</span>'
+        if ok
+        else f'<span class="pill bad">{ICON_BAD}{run["state"]}</span>'
+    )
+    stages = [
+        ("Ingest", k.get("ingestion", 0), "resolve the date, wait for each source's file, load it"),
+        ("dbt seeds", k.get("dbt seed", 0), "reference tables"),
+        ("dbt models", k.get("dbt model", 0), "one task per model, staging to marts"),
+        ("dbt test tasks", k.get("dbt test", 0), f"running all {dbt_tests} tests, each right after its model"),
+        ("Reconcile", k.get("reconciliation", 0), "cross-layer checks below"),
+    ]
+    flow = "".join(
+        f'<div class="step"><div class="k">{e(name)}</div><div class="v">{n}</div><div class="d">{e(d)}</div></div>'
+        for name, n, d in stages
+    )
+    checks = "".join(
+        f"<tr><td><code>{e(r['check_name'])}</code></td><td style='white-space:normal'>{e(r['detail'] or '')}</td>"
+        f"<td class='num'>{r['expected']:,}</td><td class='num'>{r['actual']:,}</td>"
+        f"<td>{MATCH if r['passed'] else MISMATCH}</td></tr>"
+        for r in reconciliation
+    )
+    day = fmt_date(str(run["logical_date"])[:10])
+    return f"""
+  <h2 class="section-title">Orchestration: the Airflow DAG run</h2>
+  <p class="lede">
+    The final day ({e(day)}) is processed by the <code>{e(run["dag_id"])}</code> Airflow DAG, exactly as a daily
+    production run would be. Astronomer Cosmos turns the dbt project into individual Airflow tasks, so each model,
+    test and seed can be retried on its own. {pill}
+  </p>
+  <div class="card flow">{flow}</div>
+  <div class="card scroll" style="margin-top:16px"><table>
+    <thead><tr><th>Reconciliation check</th><th>What it compares</th><th class="num">Expected</th>
+      <th class="num">Actual</th><th>Result</th></tr></thead>
+    <tbody>{checks}</tbody></table></div>"""
+
+
 def pipeline_data(conn) -> dict:
     sources = query(
         conn,
@@ -305,7 +351,14 @@ def pipeline_data(conn) -> dict:
                (SELECT count(*) FROM marts.fact_hospital_stays) AS fact_stays,
                (SELECT count(*) FROM staging.stg_encounters WHERE version_count > 1) AS corrected""",
     )[0]
-    return {"sources": sources, "issues": issues, "counts": counts}
+    reconciliation = query(
+        conn,
+        """
+        SELECT check_name, expected, actual, passed, detail FROM audit.reconciliation_audit
+        WHERE run_id = (SELECT run_id FROM audit.reconciliation_audit ORDER BY checked_at DESC LIMIT 1)
+        ORDER BY check_name""",
+    )
+    return {"sources": sources, "issues": issues, "counts": counts, "reconciliation": reconciliation}
 
 
 # --- rendering --------------------------------------------------------------------
@@ -343,13 +396,13 @@ def banner(meta: dict, checks: dict, prefix: str = "") -> str:
 
 def footer(repo: str) -> str:
     return f"""<footer class="wrap">
-  HealthFlow is a portfolio project: an ELT platform built with Python, PostgreSQL and dbt, rebuilt nightly by GitHub Actions.
+  HealthFlow is a portfolio project: an ELT platform built with Python, PostgreSQL, dbt and Airflow, rebuilt nightly by GitHub Actions.
   All patient data is synthetic, generated with Synthea; no real patient data is used.
   <a href="https://github.com/{e(repo)}">Source code and documentation</a>.
 </footer>"""
 
 
-def render_pipeline(meta: dict, checks: dict, pipe: dict, demo: dict, repo: str) -> str:
+def render_pipeline(meta: dict, checks: dict, pipe: dict, demo: dict, repo: str, airflow: dict | None = None) -> str:
     c = pipe["counts"]
     replay = demo["replay"]
     first = demo["first_pass"]
@@ -457,6 +510,8 @@ def render_pipeline(meta: dict, checks: dict, pipe: dict, demo: dict, repo: str)
     <thead><tr><th>Delivery date</th><th>File</th><th>Outcome</th><th>Reason</th></tr></thead>
     <tbody>{issues}</tbody></table></div>
 
+{airflow_section(airflow, pipe["reconciliation"], checks["tests"])}
+
   <h2 class="section-title">Replay check: rerunning is safe</h2>
   <div class="card scroll"><table>
     <thead><tr><th>Pass</th><th class="num">Ingestion runs</th><th class="num">Files loaded</th>
@@ -540,7 +595,9 @@ def main() -> None:
     }.items():
         index = index.replace(key, value)
     (out / "index.html").write_text(index)
-    (out / "pipeline.html").write_text(render_pipeline(meta, checks, pipe, demo, repo))
+    airflow_path = args.target / "airflow_run.json"
+    airflow = json.loads(airflow_path.read_text()) if airflow_path.exists() else None
+    (out / "pipeline.html").write_text(render_pipeline(meta, checks, pipe, demo, repo, airflow))
 
     docs = args.target / "static_index.html"
     if docs.exists():
