@@ -62,7 +62,11 @@
   // ---- Charts ------------------------------------------------------------------
   function baseOptions(yTitle, opts) {
     opts = opts || {};
-    const grid = css("--grid"), muted = css("--muted"), axis = css("--axis");
+    const grid = css("--rule"), muted = css("--muted"), axis = css("--ink-2");
+    if (window.Chart) {
+      Chart.defaults.font.family = css("--font");
+      Chart.defaults.font.size = 13;
+    }
     return {
       responsive: true,
       maintainAspectRatio: false,
@@ -71,12 +75,14 @@
       plugins: {
         legend: { display: false },
         tooltip: {
-          backgroundColor: css("--surface"),
+          backgroundColor: css("--panel"),
           titleColor: css("--ink"),
           bodyColor: css("--ink-2"),
-          borderColor: css("--axis"),
+          borderColor: css("--rule"),
           borderWidth: 1,
           padding: 10,
+          titleFont: { weight: "700" },
+          displayColors: false,
           callbacks: opts.tooltip || {},
         },
       },
@@ -113,12 +119,12 @@
   }
 
   function bar(color, data) {
-    return { data, backgroundColor: color, borderRadius: 4, borderSkipped: "bottom", maxBarThickness: 28, categoryPercentage: 0.7 };
+    return { data, backgroundColor: color, borderRadius: 3, borderSkipped: "bottom", maxBarThickness: 26, categoryPercentage: 0.66 };
   }
   function line(color, data, points) {
     return {
       data, borderColor: color, backgroundColor: color, borderWidth: 2, tension: 0, spanGaps: false,
-      pointRadius: points ? 4 : 0, pointHoverRadius: 6, pointBorderColor: css("--surface"), pointBorderWidth: 2,
+      pointRadius: points ? 4 : 0, pointHoverRadius: 6, pointBorderColor: css("--panel"), pointBorderWidth: 2,
     };
   }
 
@@ -190,7 +196,7 @@
     const C = D.census_daily;
     const cLabels = C.dates.map((d) => new Date(d + "T00:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }));
     draw("c-census", { type: "line", data: { labels: cLabels, datasets: [{ ...line(blue, C.values, false), tension: 0, stepped: true }] },
-      options: baseOptions("Patients in hospital", { precision: 0, xTicks: { maxTicksLimit: 12 } }) });
+      options: baseOptions("Patients", { precision: 0, xTicks: { maxTicksLimit: 12 } }) });
   }
 
   // ---- Department table ------------------------------------------------------------

@@ -55,9 +55,15 @@ ICON_BAD = (
 MATCH = f'<span class="pill good">{ICON_OK}Match</span>'
 MISMATCH = f'<span class="pill bad">{ICON_BAD}Mismatch</span>'
 LOGO = (
-    '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="6" '
-    'fill="var(--series-1)"/><path d="M4 13h4l2-5 4 9 2-4h4" stroke="#fff" stroke-width="2" fill="none" '
+    '<svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">'
+    '<rect width="26" height="26" rx="5" fill="var(--ink)"/>'
+    '<path d="M4 14h4.5l2.5-6 4 11 2.5-5H22" stroke="var(--paper)" stroke-width="2.2" fill="none" '
     'stroke-linecap="round" stroke-linejoin="round"/></svg>'
+)
+FAVICON = (
+    "%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'%3E%3Crect width='26' height='26' rx='5' "
+    "fill='%2313263a'/%3E%3Cpath d='M4 14h4.5l2.5-6 4 11 2.5-5H22' stroke='%23f2f5f3' stroke-width='2.2' "
+    "fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
 )
 
 e = html.escape
@@ -278,46 +284,56 @@ def dbt_results(path: Path) -> dict:
 
 
 def airflow_section(run: dict | None, reconciliation: list[dict], dbt_tests: int) -> str:
-    """The Airflow DAG run that processed the final day, and its reconciliation checks."""
+    """The Airflow DAG run that processed the final day, drawn as its task graph, plus reconciliation."""
     if not run:
         return ""
     k = run["by_kind"]
+    total = len(run["tasks"])
     ok = run["state"] == "success" and set(run["by_state"]) == {"success"}
     pill = (
-        f'<span class="pill good">{ICON_OK}{len(run["tasks"])} of {len(run["tasks"])} tasks succeeded</span>'
+        f'<span class="pill good">{ICON_OK}{total} of {total} tasks succeeded</span>'
         if ok
-        else f'<span class="pill bad">{ICON_BAD}{run["state"]}</span>'
+        else f'<span class="pill bad">{ICON_BAD}Run {e(run["state"])}</span>'
     )
-    stages = [
-        ("Ingest", k.get("ingestion", 0), "resolve the date, wait for each source's file, load it"),
-        ("dbt seeds", k.get("dbt seed", 0), "reference tables"),
-        ("dbt models", k.get("dbt model", 0), "one task per model, staging to marts"),
-        ("dbt test tasks", k.get("dbt test", 0), f"running all {dbt_tests} tests, each right after its model"),
-        ("Reconcile", k.get("reconciliation", 0), "cross-layer checks below"),
-    ]
-    flow = "".join(
-        f'<div class="step"><div class="k">{e(name)}</div><div class="v">{n}</div><div class="d">{e(d)}</div></div>'
-        for name, n, d in stages
+    transform = (
+        f"{k.get('dbt model', 0)} models, {k.get('dbt seed', 0)} seeds, "
+        f"{k.get('dbt test', 0)} test tasks ({dbt_tests} tests)"
     )
     checks = "".join(
-        f"<tr><td><code>{e(r['check_name'])}</code></td><td style='white-space:normal'>{e(r['detail'] or '')}</td>"
+        f"<tr><td><code>{e(r['check_name'])}</code></td><td class='wrap-text'>{e(r['detail'] or '')}</td>"
         f"<td class='num'>{r['expected']:,}</td><td class='num'>{r['actual']:,}</td>"
         f"<td>{MATCH if r['passed'] else MISMATCH}</td></tr>"
         for r in reconciliation
     )
     day = fmt_date(str(run["logical_date"])[:10])
     return f"""
-  <h2 class="section-title">Orchestration: the Airflow DAG run</h2>
-  <p class="lede">
-    The final day ({e(day)}) is processed by the <code>{e(run["dag_id"])}</code> Airflow DAG, exactly as a daily
-    production run would be. Astronomer Cosmos turns the dbt project into individual Airflow tasks, so each model,
-    test and seed can be retried on its own. {pill}
-  </p>
-  <div class="card flow">{flow}</div>
-  <div class="card scroll" style="margin-top:16px"><table>
-    <thead><tr><th>Reconciliation check</th><th>What it compares</th><th class="num">Expected</th>
-      <th class="num">Actual</th><th>Result</th></tr></thead>
-    <tbody>{checks}</tbody></table></div>"""
+  <section class="section" aria-labelledby="orchestration">
+    <div class="section-head">
+      <div>
+        <h2 id="orchestration">Orchestration in Airflow</h2>
+        <p>The final day, {e(day)}, runs through the <code>{e(run["dag_id"])}</code> DAG exactly as a daily
+        production run would. Astronomer Cosmos turns every dbt seed, model and test into its own task,
+        so any one of them can be retried alone.</p>
+      </div>
+      {pill}
+    </div>
+    <div class="dag" role="img" aria-label="Task graph: resolve date, then ingest patients and encounters, then transform with dbt, then reconcile">
+      <div class="node"><strong>Resolve date</strong><span>from the run's schedule</span></div>
+      <div class="edge"></div>
+      <div class="stack">
+        <div class="node"><strong>Ingest patients</strong><span>wait for file, then load</span></div>
+        <div class="node"><strong>Ingest encounters</strong><span>wait for file, then load</span></div>
+      </div>
+      <div class="edge"></div>
+      <div class="node"><strong>Transform with dbt</strong><span>{e(transform)}</span></div>
+      <div class="edge"></div>
+      <div class="node"><strong>Reconcile</strong><span>{len(reconciliation)} cross-layer checks</span></div>
+    </div>
+    <div class="panel scroll"><table>
+      <thead><tr><th>Reconciliation check</th><th>What it compares</th><th class="num">Expected</th>
+        <th class="num">Actual</th><th>Result</th></tr></thead>
+      <tbody>{checks}</tbody></table></div>
+  </section>"""
 
 
 def pipeline_data(conn) -> dict:
@@ -363,65 +379,95 @@ def pipeline_data(conn) -> dict:
 
 # --- rendering --------------------------------------------------------------------
 
+FONTS = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    '<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">'
+)
+
+
+def head(title: str, description: str) -> str:
+    return f"""<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{e(title)}</title>
+<meta name="description" content="{e(description)}">
+<meta property="og:title" content="{e(title)}">
+<meta property="og:description" content="{e(description)}">
+<link rel="icon" href="data:image/svg+xml,{FAVICON}">
+{FONTS}
+<link rel="stylesheet" href="assets/style.css">
+</head>"""
+
 
 def header(active: str, repo: str) -> str:
     def link(href: str, label: str, key: str) -> str:
         current = ' aria-current="page"' if key == active else ""
         return f'<a href="{href}"{current}>{label}</a>'
 
-    prefix = "../" if active == "model" else ""
     return f"""<header class="top"><div class="wrap">
-  <a class="brand" href="{prefix}index.html">{LOGO}HealthFlow</a>
-  <nav>{link(prefix + "index.html", "Dashboard", "dashboard")}{link(prefix + "pipeline.html", "Pipeline", "pipeline")}{link(prefix + "model/index.html", "Data model", "model")}</nav>
-  <a class="gh" href="https://github.com/{e(repo)}">Source code on GitHub ↗</a>
+  <a class="brand" href="index.html">{LOGO}HealthFlow</a>
+  <nav aria-label="Main">{link("index.html", "Dashboard", "dashboard")}{link("pipeline.html", "Pipeline", "pipeline")}{link("model/index.html", "Data model", "model")}</nav>
+  <a class="source" href="https://github.com/{e(repo)}">Source on GitHub</a>
 </div></header>"""
 
 
-def banner(meta: dict, checks: dict, prefix: str = "") -> str:
+def run_status(meta: dict, checks: dict, show_pipeline_link: bool = True) -> str:
     ok = checks["failed"] == 0
     total = checks["passed"] + checks["failed"] + checks["warned"]
-    status = (
-        f'<span class="status">{ICON_OK}All {checks["passed"]} checks passed</span>'
+    state = (
+        f'<p class="run-state">{ICON_OK}All {checks["passed"]} checks passed</p>'
         if ok
-        else f'<span class="status bad">{ICON_BAD}{checks["failed"]} of {total} checks failed</span>'
+        else f'<p class="run-state">{ICON_BAD}{checks["failed"]} of {total} checks failed</p>'
     )
-    run_link = f' · <a href="{e(meta["run_url"])}">Run log</a>' if meta.get("run_url") else ""
-    return (
-        f'<div class="banner" role="status">{status}'
-        f"<span>Rebuilt by the pipeline {e(meta['built_at_text'])}</span>"
-        f"<span>Data through {e(fmt_date(meta['window']['to']))}</span>"
-        f'<span><a href="{prefix}pipeline.html">How this was built</a>{run_link}</span></div>'
+    links = []
+    if show_pipeline_link:
+        links.append('<a href="pipeline.html">See how it was built</a>')
+    if meta.get("run_url"):
+        links.append(f'<a href="{e(meta["run_url"])}">Run log</a>')
+    return f"""<aside class="run{"" if ok else " failed"}" aria-label="Latest pipeline run">
+      {state}
+      <dl>
+        <dt>Rebuilt</dt><dd>{e(meta["built_at_text"])}</dd>
+        <dt>Data through</dt><dd>{e(fmt_date(meta["window"]["to"]))}</dd>
+      </dl>
+      <p class="links">{"".join(links)}</p>
+    </aside>"""
+
+
+def flow_strip(c: dict) -> str:
+    """Source files to gold, with last night's real counts. Drawn once on page load (CSS)."""
+    fmt = "{:,}".format
+    stages = [
+        ("Source files", fmt(c["files"]), "daily deliveries from two hospital systems"),
+        ("Bronze", fmt(c["bronze"]), "immutable copies, by delivery date"),
+        ("Raw", fmt(c["raw_rows"]), "rows as delivered, every version kept"),
+        ("Staging", fmt(c["stg_encounters"] + c["stg_patients"]), f"latest versions, {fmt(c['corrected'])} corrected"),
+        ("Gold", fmt(c["fact_encounters"] + c["fact_stays"]), "fact rows behind these figures"),
+    ]
+    items = "".join(
+        f'<li style="--i:{i}"><span class="stage">{e(name)}</span><span class="count">{count}</span>'
+        f'<span class="what">{e(what)}</span></li>'
+        for i, (name, count, what) in enumerate(stages)
     )
+    return f'<ol class="flow" aria-label="Last night\'s run, from source files to the gold layer">{items}</ol>'
 
 
 def footer(repo: str) -> str:
-    return f"""<footer class="wrap">
-  HealthFlow is a portfolio project: an ELT platform built with Python, PostgreSQL, dbt and Airflow, rebuilt nightly by GitHub Actions.
-  All patient data is synthetic, generated with Synthea; no real patient data is used.
-  <a href="https://github.com/{e(repo)}">Source code and documentation</a>.
-</footer>"""
+    return f"""<footer><div class="wrap">
+  <p>HealthFlow is a portfolio project by Oba Oriekwo: an ELT platform built with Python, PostgreSQL, dbt and Airflow,
+  rebuilt every night by GitHub Actions. All patient data is synthetic, generated with Synthea; no real patient data is used.
+  <a href="https://github.com/{e(repo)}">Source code and documentation</a>.</p>
+</div></footer>"""
 
 
 def render_pipeline(meta: dict, checks: dict, pipe: dict, demo: dict, repo: str, airflow: dict | None = None) -> str:
-    c = pipe["counts"]
     replay = demo["replay"]
     first = demo["first_pass"]
     fmt = "{:,}".format
 
-    steps = [
-        ("Source deliveries", fmt(c["files"]), "daily files from 2 simulated hospital systems"),
-        ("Bronze", fmt(c["bronze"]), "immutable file copies, by delivery date"),
-        ("Raw", fmt(c["raw_rows"]), "rows as delivered, every version kept"),
-        ("Staging", fmt(c["stg_encounters"] + c["stg_patients"]), f"latest versions; {fmt(c['corrected'])} corrected"),
-        ("Gold", fmt(c["fact_encounters"] + c["fact_stays"]), "fact rows behind the dashboard"),
-    ]
-    flow = "".join(
-        f'<div class="step"><div class="k">{e(k)}</div><div class="v">{v}</div><div class="d">{e(d)}</div></div>'
-        for k, v, d in steps
-    )
-
     source_rows = "".join(
-        f"<tr><td>{e(s['source_name'])}</td><td class='num'>{fmt(s['days'])}</td><td class='num'>{fmt(s['loaded'])}</td>"
+        f"<tr><td>{e(s['source_name'].capitalize())}</td><td class='num'>{fmt(s['days'])}</td><td class='num'>{fmt(s['loaded'])}</td>"
         f"<td class='num'>{fmt(s['quarantined'])}</td><td class='num'>{fmt(s['rows_loaded'])}</td>"
         f"<td class='num'>{fmt(s['rows_rejected'])}</td><td class='num'>{e(fmt_date(s['latest']))}</td></tr>"
         for s in pipe["sources"]
@@ -429,16 +475,16 @@ def render_pipeline(meta: dict, checks: dict, pipe: dict, demo: dict, repo: str,
 
     def issue_row(i: dict) -> str:
         if i["ingestion_status"] == "quarantined":
-            outcome = '<span class="pill bad">File quarantined</span>'
+            outcome = f'<span class="pill bad">{ICON_BAD}File quarantined</span>'
             detail = i["rejection_reason"]
         else:
             outcome = '<span class="pill warn">Rows quarantined</span>'
             detail = (
-                f"{i['records_rejected']} unusable rows set aside with the reason for each; the rest of the file loaded"
+                f"{i['records_rejected']} unusable rows set aside, each with its reason; the rest of the file loaded"
             )
         return (
             f"<tr><td>{e(fmt_date(i['available_date']))}</td><td>{e(i['original_file_name'])}</td>"
-            f"<td>{outcome}</td><td style='white-space:normal'>{e(detail)}</td></tr>"
+            f"<td>{outcome}</td><td class='wrap-text'>{e(detail)}</td></tr>"
         )
 
     issues = (
@@ -451,7 +497,7 @@ def render_pipeline(meta: dict, checks: dict, pipe: dict, demo: dict, repo: str,
         return f'<span class="pill bad">{ICON_BAD}{e(status)}</span>'
 
     rules = "".join(
-        f"<tr><td style='white-space:normal'>{e(r['description'])}</td><td><code>{e(r['name'])}</code></td>"
+        f"<tr><td class='wrap-text'>{e(r['description'])}</td><td><code>{e(r['name'])}</code></td>"
         f"<td>{status_pill(r['status'])}</td></tr>"
         for r in checks["rules"]
     )
@@ -460,82 +506,92 @@ def render_pipeline(meta: dict, checks: dict, pipe: dict, demo: dict, repo: str,
     replay_pill = (
         f'<span class="pill good">{ICON_OK}0 rows added</span>'
         if replay_ok
-        else f'<span class="pill bad">{ICON_BAD}Changed</span>'
+        else f'<span class="pill bad">{ICON_BAD}Warehouse changed</span>'
     )
-    run_meta = []
-    if meta.get("commit"):
-        run_meta.append(
-            f'commit <a href="https://github.com/{e(repo)}/commit/{e(meta["commit"])}"><code>{e(meta["commit"][:7])}</code></a>'
-        )
-    if meta.get("run_url"):
-        run_meta.append(f'<a href="{e(meta["run_url"])}">full run log on GitHub Actions</a>')
+    commit = (
+        f' It was built from commit <a href="https://github.com/{e(repo)}/commit/{e(meta["commit"])}"><code>{e(meta["commit"][:7])}</code></a>.'
+        if meta.get("commit")
+        else ""
+    )
 
     return f"""<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HealthFlow · Pipeline status</title>
-<meta name="description" content="What the HealthFlow pipeline did in its latest run: deliveries, quarantine, replay check and data quality tests.">
-<link rel="stylesheet" href="assets/style.css">
-</head>
+{head("HealthFlow pipeline status", "What the HealthFlow pipeline did in its latest nightly run: deliveries, quarantine, Airflow orchestration, replay check and data quality tests.")}
 <body>
 {header("pipeline", repo)}
 <main class="wrap">
-  {banner(meta, checks)}
-  <h1>Pipeline status</h1>
-  <p class="lede">
-    What the pipeline did in its latest run. GitHub Actions starts from an empty database every night, simulates a year
-    of daily deliveries from two hospital systems, ingests them day by day, transforms them with dbt and runs every
-    data test. If any step or test fails, this site is not updated, so what you see always passed. {" · ".join(run_meta)}
-  </p>
+  <section class="hero">
+    <div>
+      <h1>How last night's build ran</h1>
+      <p class="lede">
+        GitHub Actions starts from an empty database, simulates a year of daily deliveries from two hospital
+        systems, ingests them day by day, runs the final day through Airflow and checks every result. If any step
+        or test fails, the site is not updated, so what you see always passed.{commit}
+      </p>
+    </div>
+    {run_status(meta, checks, show_pipeline_link=False)}
+  </section>
 
-  <h2 class="section-title">From source files to dashboard</h2>
-  <div class="card flow">{flow}</div>
+  {flow_strip(pipe["counts"])}
 
-  <h2 class="section-title">Deliveries by source</h2>
-  <div class="card scroll"><table>
-    <thead><tr><th>Source system</th><th class="num">Days delivered</th><th class="num">Files loaded</th>
-      <th class="num">Files quarantined</th><th class="num">Rows loaded</th><th class="num">Rows rejected</th>
-      <th class="num">Latest delivery</th></tr></thead>
-    <tbody>{source_rows}</tbody></table></div>
+  <section class="section" aria-labelledby="deliveries">
+    <div class="section-head"><div>
+      <h2 id="deliveries">Deliveries by source</h2>
+      <p>One file a day from each simulated hospital system, including days with nothing to send.</p>
+    </div></div>
+    <div class="panel scroll"><table>
+      <thead><tr><th>Source system</th><th class="num">Days delivered</th><th class="num">Files loaded</th>
+        <th class="num">Files quarantined</th><th class="num">Rows loaded</th><th class="num">Rows rejected</th>
+        <th class="num">Latest delivery</th></tr></thead>
+      <tbody>{source_rows}</tbody></table></div>
+  </section>
 
-  <h2 class="section-title">Quarantine log</h2>
-  <p class="lede">
-    The simulator deliberately sends two kinds of bad data each run, so the defences can be seen working: a re-sent file
-    with a renamed column (schema drift), and a file containing a few unusable rows. Quarantined data is kept, never deleted,
-    so it can be fixed and replayed.
-  </p>
-  <div class="card scroll"><table>
-    <thead><tr><th>Delivery date</th><th>File</th><th>Outcome</th><th>Reason</th></tr></thead>
-    <tbody>{issues}</tbody></table></div>
-
+  <section class="section" aria-labelledby="quarantine">
+    <div class="section-head"><div>
+      <h2 id="quarantine">Quarantine log</h2>
+      <p>Each run deliberately sends a re-sent file with a renamed column and a file with a few unusable rows,
+      so the defences can be seen working. Quarantined data is kept, never deleted, so it can be fixed and replayed.</p>
+    </div></div>
+    <div class="panel scroll"><table>
+      <thead><tr><th>Delivery date</th><th>File</th><th>Outcome</th><th>Reason</th></tr></thead>
+      <tbody>{issues}</tbody></table></div>
+  </section>
 {airflow_section(airflow, pipe["reconciliation"], checks["tests"])}
 
-  <h2 class="section-title">Replay check: rerunning is safe</h2>
-  <div class="card scroll"><table>
-    <thead><tr><th>Pass</th><th class="num">Ingestion runs</th><th class="num">Files loaded</th>
-      <th class="num">Files skipped (already ingested)</th><th class="num">Rows added</th><th>Result</th></tr></thead>
-    <tbody>
-      <tr><td>First load</td><td class="num">{fmt(first["runs"])}</td><td class="num">{fmt(first["files_loaded"])}</td>
-        <td class="num">{fmt(first["files_skipped"])}</td><td class="num">{fmt(first["rows_loaded"])}</td><td>Loaded in {first["seconds"]}s</td></tr>
-      <tr><td>Replay of every day</td><td class="num">{fmt(replay["runs"])}</td><td class="num">{fmt(replay["files_loaded"])}</td>
-        <td class="num">{fmt(replay["files_skipped"])}</td><td class="num">{fmt(replay["rows_loaded"])}</td><td>{replay_pill}</td></tr>
-    </tbody></table></div>
+  <section class="section" aria-labelledby="replay">
+    <div class="section-head"><div>
+      <h2 id="replay">Replay check</h2>
+      <p>Every day is ingested a second time. The warehouse must not change: rerunning a day is always safe.</p>
+    </div>{replay_pill}</div>
+    <div class="panel scroll"><table>
+      <thead><tr><th>Pass</th><th class="num">Ingestion runs</th><th class="num">Files loaded</th>
+        <th class="num">Files skipped as already ingested</th><th class="num">Rows added</th></tr></thead>
+      <tbody>
+        <tr><td>First load</td><td class="num">{fmt(first["runs"])}</td><td class="num">{fmt(first["files_loaded"])}</td>
+          <td class="num">{fmt(first["files_skipped"])}</td><td class="num">{fmt(first["rows_loaded"])}</td></tr>
+        <tr><td>Replay of every day</td><td class="num">{fmt(replay["runs"])}</td><td class="num">{fmt(replay["files_loaded"])}</td>
+          <td class="num">{fmt(replay["files_skipped"])}</td><td class="num">{fmt(replay["rows_loaded"])}</td></tr>
+      </tbody></table></div>
+  </section>
 
-  <h2 class="section-title">Data quality</h2>
-  <div class="tiles">
-    <div class="tile"><div class="label">dbt models built</div><div class="value">{checks["models"]}</div><div class="note">plus {checks["seeds"]} reference tables</div></div>
-    <div class="tile"><div class="label">Data tests passed</div><div class="value">{checks["tests"] - checks["failed"]} / {checks["tests"]}</div><div class="note">keys, relationships, ranges, business rules</div></div>
-    <div class="tile"><div class="label">dbt run time</div><div class="value">{checks["elapsed"]}s</div><div class="note">full rebuild, all layers</div></div>
-  </div>
-  <div class="card scroll" style="margin-top:16px"><table>
-    <thead><tr><th>Business rule</th><th>Test</th><th>Status</th></tr></thead>
-    <tbody>{rules}</tbody></table></div>
-  <ul class="notes">
-    <li>Every model and test is documented, with its lineage, on the <a href="model/index.html">data model</a> page.</li>
-    <li>The 30-day readmission rules are written out in <a href="https://github.com/{e(repo)}/blob/main/docs/readmission_definition.md">docs/readmission_definition.md</a>.</li>
-  </ul>
+  <section class="section" aria-labelledby="quality">
+    <div class="section-head"><div>
+      <h2 id="quality">Data quality</h2>
+      <p>dbt tests check keys, relationships, value ranges and the hospital's business rules after every model.</p>
+    </div></div>
+    <div class="readings three">
+      <div class="reading"><div class="label">Models built</div><div class="value">{checks["models"]}</div><div class="note">plus {checks["seeds"]} reference tables</div></div>
+      <div class="reading"><div class="label">Tests passed</div><div class="value">{checks["tests"] - checks["failed"]} of {checks["tests"]}</div><div class="note">keys, relationships, ranges, business rules</div></div>
+      <div class="reading"><div class="label">dbt time</div><div class="value">{checks["elapsed"]}s</div><div class="note">all layers, summed across tasks</div></div>
+    </div>
+    <div class="panel scroll" style="margin-top:20px"><table>
+      <thead><tr><th>Business rule</th><th>Test</th><th>Status</th></tr></thead>
+      <tbody>{rules}</tbody></table></div>
+    <ul class="notes">
+      <li>Every model and test is documented, with its lineage, on the <a href="model/index.html">data model</a> page.</li>
+      <li>The readmission rules are written out in <a href="https://github.com/{e(repo)}/blob/main/docs/readmission_definition.md">the readmission definition</a>.</li>
+    </ul>
+  </section>
 </main>
 {footer(repo)}
 </body>
@@ -559,7 +615,7 @@ def main() -> None:
     meta = {
         "window": demo["window"],
         "built_at": built_at.isoformat(timespec="seconds"),
-        "built_at_text": f"on {fmt_date(built_at.date())} at {built_at.strftime('%H:%M')} UTC",
+        "built_at_text": f"{fmt_date(built_at.date())}, {built_at.strftime('%H:%M')} UTC",
         "commit": os.environ.get("GITHUB_SHA"),
         "run_url": (
             f"{os.environ['GITHUB_SERVER_URL']}/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
@@ -584,8 +640,14 @@ def main() -> None:
 
     index = (SITE_SRC / "index.html").read_text()
     for key, value in {
+        "{{HEAD}}": head(
+            "HealthFlow hospital dashboard",
+            "Live demo of HealthFlow, a healthcare data platform: Python ingestion, PostgreSQL, dbt and Airflow, "
+            "rebuilt every night by GitHub Actions on synthetic patient data.",
+        ),
         "{{HEADER}}": header("dashboard", repo),
-        "{{BANNER}}": banner(meta, checks),
+        "{{STATUS}}": run_status(meta, checks),
+        "{{FLOW}}": flow_strip(pipe["counts"]),
         "{{FOOTER}}": footer(repo),
         "{{WINDOW_FROM}}": fmt_date(months[0]),
         "{{WINDOW_TO}}": fmt_date(month_end(months[-1])),

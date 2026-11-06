@@ -1,95 +1,111 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HealthFlow · Hospital dashboard</title>
-<meta name="description" content="Live demo of HealthFlow, a healthcare data platform: Python ingestion, PostgreSQL, dbt and Airflow, rebuilt every night by GitHub Actions on synthetic patient data.">
-<link rel="stylesheet" href="assets/style.css">
-</head>
+{{HEAD}}
 <body>
 {{HEADER}}
 <main class="wrap">
-  {{BANNER}}
-
-  <h1>Hospital performance</h1>
-  <p class="lede">
-    One year of activity at a simulated hospital group, from <strong>{{WINDOW_FROM}}</strong> to
-    <strong>{{WINDOW_TO}}</strong>. Every figure on this page comes from the warehouse's gold layer,
-    rebuilt from raw source files by the pipeline. All patients are synthetic
-    (<a href="https://github.com/synthetichealth/synthea">Synthea</a>).
-  </p>
-
-  <section class="tiles" aria-label="Headline figures">
-    <div class="tile"><div class="label">Encounters</div><div class="value" id="kpi-encounters">{{KPI_ENCOUNTERS}}</div><div class="note" id="kpi-patients">{{KPI_PATIENTS}}</div></div>
-    <div class="tile"><div class="label">Hospital stays</div><div class="value" id="kpi-stays">{{KPI_STAYS}}</div><div class="note" id="kpi-stays-note">{{KPI_STAYS_NOTE}}</div></div>
-    <div class="tile"><div class="label">Average length of stay</div><div class="value" id="kpi-los">{{KPI_LOS}}</div><div class="note">Admission to final discharge, transfers merged</div></div>
-    <div class="tile"><div class="label">30-day readmission rate</div><div class="value" id="kpi-readm">{{KPI_READM}}</div><div class="note" id="kpi-readm-note">{{KPI_READM_NOTE}}</div></div>
-    <div class="tile"><div class="label">ED patients within 4 hours</div><div class="value" id="kpi-ed">{{KPI_ED}}</div><div class="note" id="kpi-ed-note">{{KPI_ED_NOTE}}</div></div>
-  </section>
-
-  <noscript><p class="callout">The charts need JavaScript. The headline figures above, the
-    <a href="pipeline.html">pipeline status</a> and the <a href="model/index.html">data model</a> work without it.</p></noscript>
-  <p class="callout" id="load-error" hidden></p>
-
-  <div class="filters">
-    <label for="dept">Department</label>
-    <select id="dept"><option value="ALL">All departments</option></select>
-    <span class="hint">Filters the three inpatient charts below.</span>
-  </div>
-
-  <section class="grid">
-    <div class="card">
-      <h2>Discharges per month</h2>
-      <p class="sub">Hospital stays ending each month, <span data-scope>all departments</span>.</p>
-      <div class="chart"><canvas id="c-discharges" role="img" aria-label="Bar chart of discharges per month"></canvas></div>
-      <details><summary>Show data</summary><div class="scroll"><table id="c-discharges-table"></table></div></details>
-    </div>
-    <div class="card">
-      <h2>Average length of stay</h2>
-      <p class="sub">Days from admission to final discharge, <span data-scope>all departments</span>.</p>
-      <div class="chart"><canvas id="c-los" role="img" aria-label="Line chart of average length of stay per month"></canvas></div>
-      <details><summary>Show data</summary><div class="scroll"><table id="c-los-table"></table></div></details>
-    </div>
-    <div class="card wide">
-      <h2>30-day readmission rate</h2>
-      <p class="sub">
-        Share of eligible stays followed by an unplanned admission within 30 days, by discharge month,
-        <span data-scope>all departments</span>. Planned returns (chemotherapy cycles, rehabilitation, elective
-        surgery) don't count. The latest month appears once its 30-day follow-up window has passed.
-        <a href="https://github.com/{{REPO}}/blob/main/docs/readmission_definition.md">Full definition</a>
+  <section class="hero">
+    <div>
+      <h1>A year of hospital activity, rebuilt from raw files every night</h1>
+      <p class="lede">
+        A simulated hospital group from <strong>{{WINDOW_FROM}}</strong> to <strong>{{WINDOW_TO}}</strong>.
+        Every figure here is read from the warehouse's gold layer, and the page is only published when the
+        whole nightly run passes. All patients are synthetic (<a href="https://github.com/synthetichealth/synthea">Synthea</a>).
       </p>
-      <p class="callout" id="readm-summary" role="status"></p>
-      <div class="chart"><canvas id="c-readm" role="img" aria-label="Line chart of 30-day readmission rate per month"></canvas></div>
-      <details><summary>Show data</summary><div class="scroll"><table id="c-readm-table"></table></div></details>
+    </div>
+    {{STATUS}}
+  </section>
+
+  {{FLOW}}
+
+  <section class="readings" aria-label="Headline figures for the year">
+    <div class="reading"><div class="label">Encounters</div><div class="value" id="kpi-encounters">{{KPI_ENCOUNTERS}}</div><div class="note" id="kpi-patients">{{KPI_PATIENTS}}</div></div>
+    <div class="reading"><div class="label">Hospital stays</div><div class="value" id="kpi-stays">{{KPI_STAYS}}</div><div class="note" id="kpi-stays-note">{{KPI_STAYS_NOTE}}</div></div>
+    <div class="reading"><div class="label">Average length of stay</div><div class="value" id="kpi-los">{{KPI_LOS}}</div><div class="note">Admission to final discharge, transfers merged</div></div>
+    <div class="reading"><div class="label">30-day readmissions</div><div class="value" id="kpi-readm">{{KPI_READM}}</div><div class="note" id="kpi-readm-note">{{KPI_READM_NOTE}}</div></div>
+    <div class="reading"><div class="label">ED seen within 4 hours</div><div class="value" id="kpi-ed">{{KPI_ED}}</div><div class="note" id="kpi-ed-note">{{KPI_ED_NOTE}}</div></div>
+  </section>
+
+  <noscript><p class="callout" style="margin-top:24px">The charts need JavaScript. The figures above, the
+    <a href="pipeline.html">pipeline status</a> and the <a href="model/index.html">data model</a> work without it.</p></noscript>
+  <p class="callout" id="load-error" hidden style="margin-top:24px"></p>
+
+  <section class="section" aria-labelledby="inpatient">
+    <div class="section-head">
+      <div>
+        <h2 id="inpatient">Inpatient care</h2>
+        <p>Hospital stays, with transfers between wards merged into one stay.</p>
+      </div>
+      <div class="filter">
+        <label for="dept">Department</label>
+        <select id="dept"><option value="ALL">All departments</option></select>
+      </div>
+    </div>
+    <div class="grid">
+      <div class="panel">
+        <h3>Discharges per month</h3>
+        <p>Stays ending each month, <span data-scope>all departments</span>.</p>
+        <div class="chart"><canvas id="c-discharges" role="img" aria-label="Bar chart of discharges per month"></canvas></div>
+        <details><summary>Show data</summary><div class="scroll"><table id="c-discharges-table"></table></div></details>
+      </div>
+      <div class="panel">
+        <h3>Average length of stay</h3>
+        <p>Days from admission to final discharge, <span data-scope>all departments</span>.</p>
+        <div class="chart"><canvas id="c-los" role="img" aria-label="Line chart of average length of stay per month"></canvas></div>
+        <details><summary>Show data</summary><div class="scroll"><table id="c-los-table"></table></div></details>
+      </div>
+      <div class="panel wide">
+        <h3>30-day readmission rate</h3>
+        <p>
+          Eligible stays followed by an unplanned admission within 30 days, by discharge month,
+          <span data-scope>all departments</span>. Planned returns such as chemotherapy cycles, rehabilitation and
+          elective surgery don't count, and a month appears once its 30-day follow-up has passed.
+          <a href="https://github.com/{{REPO}}/blob/main/docs/readmission_definition.md">Read the full definition</a>
+        </p>
+        <p class="callout" id="readm-summary" role="status"></p>
+        <div class="chart"><canvas id="c-readm" role="img" aria-label="Line chart of 30-day readmission rate per month"></canvas></div>
+        <details><summary>Show data</summary><div class="scroll"><table id="c-readm-table"></table></div></details>
+      </div>
     </div>
   </section>
 
-  <h2 class="section-title">Hospital-wide</h2>
-  <section class="grid">
-    <div class="card">
-      <h2>Emergency department: seen within 4 hours</h2>
-      <p class="sub">Share of ED visits completed within 4 hours of arrival (the NHS England A&amp;E measure).</p>
-      <div class="chart"><canvas id="c-ed" role="img" aria-label="Line chart of the share of ED visits within 4 hours"></canvas></div>
-      <details><summary>Show data</summary><div class="scroll"><table id="c-ed-table"></table></div></details>
+  <section class="section" aria-labelledby="hospital">
+    <div class="section-head">
+      <div>
+        <h2 id="hospital">Whole hospital</h2>
+        <p>Every contact with the hospital, not only inpatient stays.</p>
+      </div>
     </div>
-    <div class="card">
-      <h2>Encounters per month</h2>
-      <p class="sub">All contacts: outpatient, emergency, inpatient, virtual and others.</p>
-      <div class="chart"><canvas id="c-encounters" role="img" aria-label="Bar chart of encounters per month"></canvas></div>
-      <details><summary>Show data</summary><div class="scroll"><table id="c-encounters-table"></table></div></details>
-    </div>
-    <div class="card wide">
-      <h2>Midnight census</h2>
-      <p class="sub">Patients in a hospital bed at midnight each day: the standard daily occupancy count.</p>
-      <div class="chart"><canvas id="c-census" role="img" aria-label="Line chart of daily midnight census"></canvas></div>
+    <div class="grid">
+      <div class="panel">
+        <h3>Emergency department within 4 hours</h3>
+        <p>Share of visits completed within 4 hours of arrival, the NHS England A&amp;E measure.</p>
+        <div class="chart"><canvas id="c-ed" role="img" aria-label="Line chart of the share of ED visits within 4 hours"></canvas></div>
+        <details><summary>Show data</summary><div class="scroll"><table id="c-ed-table"></table></div></details>
+      </div>
+      <div class="panel">
+        <h3>Encounters per month</h3>
+        <p>Outpatient, emergency, inpatient, virtual and other contacts.</p>
+        <div class="chart"><canvas id="c-encounters" role="img" aria-label="Bar chart of encounters per month"></canvas></div>
+        <details><summary>Show data</summary><div class="scroll"><table id="c-encounters-table"></table></div></details>
+      </div>
+      <div class="panel wide">
+        <h3>Midnight census</h3>
+        <p>Patients in a hospital bed at midnight each day, the standard daily occupancy count.</p>
+        <div class="chart"><canvas id="c-census" role="img" aria-label="Line chart of daily midnight census"></canvas></div>
+      </div>
     </div>
   </section>
 
-  <h2 class="section-title">Departments</h2>
-  <div class="card scroll">
-    <table id="dept-table"></table>
-  </div>
+  <section class="section" aria-labelledby="departments">
+    <div class="section-head">
+      <div>
+        <h2 id="departments">Departments</h2>
+        <p>Inpatient stays by admitting department over the year.</p>
+      </div>
+    </div>
+    <div class="panel scroll"><table id="dept-table"></table></div>
+  </section>
 </main>
 {{FOOTER}}
 <script src="{{CHARTJS_SRC}}"></script>
