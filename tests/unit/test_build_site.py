@@ -3,7 +3,9 @@ from datetime import date
 
 from scripts.build_site import (
     dbt_results,
+    flow_strip,
     history_entry,
+    layer_tests,
     merge_history,
     model_metadata,
     month_end,
@@ -153,3 +155,53 @@ def test_run_history_joins_api_runs_to_recorded_counts():
     assert rows[0]["minutes"] == 9 and rows[2]["minutes"] == 8.5 and rows[0]["message"] == "Fix things"
     html = run_history_section(rows, "o/r")
     assert "Failed, not published" in html and "1 passed, 1 failed" in html
+
+
+def test_flow_strip_reports_each_stage_from_real_counts():
+    manifest = {
+        "nodes": {
+            "model.h.stg_x": {"resource_type": "model", "config": {"schema": "staging"}},
+            "model.h.fact_x": {"resource_type": "model", "config": {"schema": "marts"}},
+            "test.h.a": {
+                "resource_type": "test",
+                "attached_node": "model.h.stg_x",
+                "depends_on": {"nodes": ["model.h.stg_x"]},
+            },
+            "test.h.b": {
+                "resource_type": "test",
+                "attached_node": "model.h.fact_x",
+                "depends_on": {"nodes": ["model.h.fact_x"]},
+            },
+            "test.h.c": {"resource_type": "test", "attached_node": None, "depends_on": {"nodes": ["source.h.raw.enc"]}},
+        }
+    }
+    results = {
+        "results": [
+            {"unique_id": "test.h.a", "status": "pass"},
+            {"unique_id": "test.h.b", "status": "fail"},
+            {"unique_id": "test.h.c", "status": "pass"},
+            {"unique_id": "model.h.fact_x", "status": "success"},
+        ]
+    }
+    tests = layer_tests(manifest, results)
+    assert tests == {
+        "staging": {"passed": 1, "failed": 0},
+        "marts": {"passed": 0, "failed": 1},
+        "raw": {"passed": 1, "failed": 0},
+    }
+    counts = {
+        "files": 10,
+        "bronze": 9,
+        "raw_rows": 100,
+        "stg_encounters": 50,
+        "stg_patients": 20,
+        "corrected": 2,
+        "fact_encounters": 50,
+        "fact_stays": 4,
+        "quarantined_files": 1,
+        "rejected_rows": 0,
+    }
+    html = flow_strip(counts, tests, replay_ok=True)
+    assert 'class="warn"' in html and "1 file quarantined" in html
+    assert "replay added 0 rows" in html and "1 source tests passed" in html
+    assert 'class="bad"' in html and "1 of 1 tests failed" in html

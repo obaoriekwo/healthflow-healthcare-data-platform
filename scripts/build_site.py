@@ -369,7 +369,10 @@ def pipeline_data(conn) -> dict:
                (SELECT count(*) FROM staging.stg_patients) AS stg_patients,
                (SELECT count(*) FROM marts.fact_encounters) AS fact_encounters,
                (SELECT count(*) FROM marts.fact_hospital_stays) AS fact_stays,
-               (SELECT count(*) FROM staging.stg_encounters WHERE version_count > 1) AS corrected""",
+               (SELECT count(*) FROM staging.stg_encounters WHERE version_count > 1) AS corrected,
+               (SELECT count(*) FROM audit.ingestion_file_audit WHERE ingestion_status = 'quarantined')
+                   AS quarantined_files,
+               (SELECT coalesce(sum(records_rejected), 0) FROM audit.ingestion_file_audit) AS rejected_rows""",
     )[0]
     reconciliation = query(
         conn,
@@ -571,20 +574,124 @@ def run_status(meta: dict, checks: dict, show_pipeline_link: bool = True) -> str
     </aside>"""
 
 
-def flow_strip(c: dict) -> str:
-    """Source files to gold, with last night's real counts. Drawn once on page load (CSS)."""
+def lucide(paths: str) -> str:
+    """A Lucide icon (lucide.dev, ISC licence), inline so it inherits the text colour."""
+    return (
+        '<svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+        f'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{paths}</svg>'
+    )
+
+
+ICONS = {
+    "file-text": '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>'
+    '<path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    "archive": '<rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/>'
+    '<path d="M10 12h4"/>',
+    "database": '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/>',
+    "layers": '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/>'
+    '<path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+    "chart-column": '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+}
+ICON_WARN = (
+    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" '
+    'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 '
+    '2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>'
+)
+
+
+def layer_tests(manifest: dict, run_results: dict) -> dict[str, dict[str, int]]:
+    """dbt test results grouped by the layer of what they test: raw (sources), staging, intermediate, marts."""
+    nodes = manifest["nodes"]
+    out: dict[str, dict[str, int]] = {}
+    for r in run_results.get("results", []):
+        test = nodes.get(r["unique_id"])
+        if not test or test["resource_type"] != "test":
+            continue
+        parents = test["depends_on"]["nodes"]
+        attached = test.get("attached_node") or (parents[0] if parents else "")
+        if attached.startswith("source.") or (not attached and any(n.startswith("source.") for n in parents)):
+            layer = "raw"
+        else:
+            layer = nodes.get(attached, {}).get("config", {}).get("schema", "other")
+        bucket = out.setdefault(layer, {"passed": 0, "failed": 0})
+        bucket["passed" if r["status"] in ("pass", "success") else "failed"] += 1
+    return out
+
+
+def stage_state(kind: str, text: str, href: str | None = None) -> tuple[str, str]:
+    icon = {"ok": ICON_OK, "warn": ICON_WARN, "bad": ICON_BAD}[kind]
+    if href:
+        return kind, f'<a class="state" href="{e(href)}">{icon}{e(text)}</a>'
+    return kind, f'<span class="state">{icon}{e(text)}</span>'
+
+
+def tests_state(t: dict | None, what: str = "tests") -> tuple[str, str] | None:
+    if not t:
+        return None
+    if t["failed"]:
+        return stage_state("bad", f"{t['failed']} of {t['passed'] + t['failed']} {what} failed")
+    return stage_state("ok", f"{t['passed']} {what} passed")
+
+
+def flow_strip(c: dict, tests: dict | None = None, replay_ok: bool | None = None) -> str:
+    """Source files to gold, with last night's real counts and what each stage found. Drawn once on load (CSS)."""
     fmt = "{:,}".format
+    tests = tests or {}
+    q, rej = c.get("quarantined_files", 0), c.get("rejected_rows", 0)
+    gold = {
+        "passed": sum(tests.get(k, {}).get("passed", 0) for k in ("intermediate", "marts")),
+        "failed": sum(tests.get(k, {}).get("failed", 0) for k in ("intermediate", "marts")),
+    }
     stages = [
-        ("Source files", fmt(c["files"]), "daily deliveries from two hospital systems"),
-        ("Bronze", fmt(c["bronze"]), "immutable copies, by delivery date"),
-        ("Raw", fmt(c["raw_rows"]), "rows as delivered, every version kept"),
-        ("Staging", fmt(c["stg_encounters"] + c["stg_patients"]), f"latest versions, {fmt(c['corrected'])} corrected"),
-        ("Gold", fmt(c["fact_encounters"] + c["fact_stays"]), "fact rows behind these figures"),
+        (
+            "file-text",
+            "Source files",
+            fmt(c["files"]),
+            "daily deliveries from two hospital systems",
+            stage_state("warn", f"{q} file{'s' if q != 1 else ''} quarantined", "pipeline.html#quarantine")
+            if q
+            else stage_state("ok", "all files accepted"),
+        ),
+        (
+            "archive",
+            "Bronze",
+            fmt(c["bronze"]),
+            "immutable copies, by delivery date",
+            None
+            if replay_ok is None
+            else stage_state("ok", "replay added 0 rows")
+            if replay_ok
+            else stage_state("bad", "replay changed the warehouse"),
+        ),
+        (
+            "database",
+            "Raw",
+            fmt(c["raw_rows"]),
+            "rows as delivered, every version kept",
+            stage_state("warn", f"{fmt(rej)} rows rejected", "pipeline.html#quarantine")
+            if rej
+            else tests_state(tests.get("raw"), "source tests"),
+        ),
+        (
+            "layers",
+            "Staging",
+            fmt(c["stg_encounters"] + c["stg_patients"]),
+            f"latest versions, {fmt(c['corrected'])} corrected",
+            tests_state(tests.get("staging")),
+        ),
+        (
+            "chart-column",
+            "Gold",
+            fmt(c["fact_encounters"] + c["fact_stays"]),
+            "fact rows behind these figures",
+            tests_state(gold if gold["passed"] + gold["failed"] else None),
+        ),
     ]
     items = "".join(
-        f'<li style="--i:{i}"><span class="stage">{e(name)}</span><span class="count">{count}</span>'
-        f'<span class="what">{e(what)}</span></li>'
-        for i, (name, count, what) in enumerate(stages)
+        f'<li style="--i:{i}" class="{(state or ("", ""))[0]}">'
+        f'<span class="stage">{lucide(ICONS[icon])}{e(name)}</span><span class="count">{count}</span>'
+        f'<span class="what">{e(what)}</span>{(state or ("", ""))[1]}</li>'
+        for i, (icon, name, count, what, state) in enumerate(stages)
     )
     return f'<ol class="flow" aria-label="Last night\'s run, from source files to the gold layer">{items}</ol>'
 
@@ -676,7 +783,7 @@ def render_pipeline(
     {run_status(meta, checks, show_pipeline_link=False)}
   </section>
 
-  {flow_strip(pipe["counts"])}
+  {flow_strip(pipe["counts"], pipe.get("layer_tests"), replay_ok)}
 {run_history_section(history or [], repo)}
 
   <section class="section" aria-labelledby="deliveries">
@@ -1034,6 +1141,10 @@ def main() -> None:
         data = dashboard_data(conn, months, data_through)
         pipe = pipeline_data(conn)
     data["meta"] = meta
+    manifest = json.loads((args.target / "manifest.json").read_text())
+    pipe["layer_tests"] = layer_tests(manifest, json.loads((args.target / "run_results.json").read_text()))
+    replay = demo["replay"]
+    replay_ok = replay["rows_loaded"] == 0 and replay["raw_rows_before"] == replay["raw_rows_after"]
 
     out = args.out
     shutil.rmtree(out, ignore_errors=True)
@@ -1050,7 +1161,7 @@ def main() -> None:
         ),
         "{{HEADER}}": header("dashboard", repo),
         "{{STATUS}}": run_status(meta, checks),
-        "{{FLOW}}": flow_strip(pipe["counts"]),
+        "{{FLOW}}": flow_strip(pipe["counts"], pipe["layer_tests"], replay_ok),
         "{{FOOTER}}": footer(repo),
         "{{WINDOW_FROM}}": fmt_date(months[0]),
         "{{WINDOW_TO}}": fmt_date(month_end(months[-1])),
@@ -1074,9 +1185,7 @@ def main() -> None:
     if docs.exists():
         (out / "dbt-docs").mkdir()
         shutil.copy(docs, out / "dbt-docs" / "index.html")
-    md = model_metadata(
-        json.loads((args.target / "manifest.json").read_text()), json.loads((args.target / "catalog.json").read_text())
-    )
+    md = model_metadata(manifest, json.loads((args.target / "catalog.json").read_text()))
     (out / "model.html").write_text(render_model(meta, md, repo, docs.exists()))
     # Older links pointed at model/index.html: keep them working.
     (out / "model").mkdir()

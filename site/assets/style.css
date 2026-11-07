@@ -150,6 +150,16 @@ p { margin: 0; }
   animation: rise .4s ease-out both; animation-delay: calc(var(--i) * 0.2s + 0.25s);
 }
 .flow .what { display: block; font-size: 14px; color: var(--muted); line-height: 1.4; max-width: 24ch; }
+.flow .stage { display: flex; align-items: center; gap: 7px; }
+.flow .stage .icon { color: var(--muted); flex: none; }
+.flow .state { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13.5px; font-weight: 700; line-height: 1.3; }
+.flow .state svg { flex: none; }
+.flow a.state { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.flow li.ok .state { color: var(--good); }
+.flow li.warn .state { color: var(--warn); }
+.flow li.bad .state { color: var(--critical); }
+.flow li.warn::before { border-color: var(--warn); }
+.flow li.bad::before { border-color: var(--critical); }
 @keyframes draw { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes mark { from { transform: scale(0); } to { transform: scale(1); } }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
