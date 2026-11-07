@@ -220,6 +220,8 @@ th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--ru
 th { color: var(--ink-2); font-weight: 700; font-size: 14px; border-bottom: 2px solid var(--rule-strong); }
 td.num, th.num { text-align: right; }
 td.wrap-text { white-space: normal; min-width: 260px; }
+td.commit { white-space: normal; min-width: 220px; }
+td.commit .small { display: block; margin-top: 2px; }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover td { background: var(--series-1-wash); }
 

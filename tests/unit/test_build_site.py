@@ -1,7 +1,16 @@
 import json
 from datetime import date
 
-from scripts.build_site import dbt_results, model_metadata, month_end, month_range
+from scripts.build_site import (
+    dbt_results,
+    history_entry,
+    merge_history,
+    model_metadata,
+    month_end,
+    month_range,
+    run_history,
+    run_history_section,
+)
 
 
 def test_month_range_keeps_only_complete_months():
@@ -102,3 +111,45 @@ def test_model_metadata_reads_keys_and_relationships_from_dbt_tests():
         {"from": "fact_encounters", "column": "patient_key", "to": "dim_patient", "field": "patient_key"}
     ]
     assert md["tests"] == 5
+
+
+def test_run_history_joins_api_runs_to_recorded_counts():
+    from datetime import UTC, datetime
+
+    def run(i, event, status, conclusion, start, end):
+        return {
+            "id": i,
+            "run_number": i,
+            "run_attempt": 1,
+            "html_url": f"https://x/{i}",
+            "event": event,
+            "status": status,
+            "conclusion": conclusion,
+            "run_started_at": start,
+            "updated_at": end,
+            "head_sha": "abcdef1234",
+            "head_commit": {"message": "Fix things\n\nbody"},
+        }
+
+    api = {
+        "workflow_runs": [
+            run(3, "push", "in_progress", None, "2026-11-07T10:00:00Z", "2026-11-07T10:05:00Z"),
+            run(2, "schedule", "completed", "failure", "2026-11-06T04:17:00Z", "2026-11-06T04:20:00Z"),
+            run(1, "workflow_dispatch", "completed", "success", "2026-11-05T04:17:00Z", "2026-11-05T04:25:30Z"),
+        ]
+    }
+    now = datetime(2026, 11, 7, 10, 9, tzinfo=UTC)
+    current = history_entry(
+        "3", {"files": 4, "raw_rows": 100, "fact_encounters": 60, "fact_stays": 5}, {"passed": 9, "failed": 0}, now
+    )
+    history = merge_history([{"run_id": 1, "raw_rows": 90, "gold_rows": 50}, {"run_id": None}], current)
+    assert [h["run_id"] for h in history] == [1, 3]
+    rows = run_history(api, history, "3", now)
+    assert [(r["result"], r["trigger"], r["raw_rows"], r["gold_rows"]) for r in rows] == [
+        ("current", "Code change", 100, 65),
+        ("failure", "Nightly", None, None),
+        ("success", "Manual", 90, 50),
+    ]
+    assert rows[0]["minutes"] == 9 and rows[2]["minutes"] == 8.5 and rows[0]["message"] == "Fix things"
+    html = run_history_section(rows, "o/r")
+    assert "Failed, not published" in html and "1 passed, 1 failed" in html

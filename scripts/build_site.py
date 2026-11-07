@@ -11,6 +11,8 @@ Reads:
     dbt/target/catalog.json          column types from the warehouse
     dbt/target/demo_pipeline.json    written by scripts/demo_pipeline.py
     dbt/target/airflow_run.json      written by scripts/export_airflow_run.py (optional)
+    dbt/target/runs.json             GitHub API list of live-demo runs (optional, fetched in CI)
+    dbt/target/history.json          history.json of the last published site (optional, fetched in CI)
 
 Writes _site/index.html (dashboard), _site/pipeline.html (pipeline status),
 _site/model.html (ERD and data dictionary) and _site/dbt-docs/index.html (dbt docs). Used by .github/workflows/live-demo.yml.
@@ -379,6 +381,138 @@ def pipeline_data(conn) -> dict:
     return {"sources": sources, "issues": issues, "counts": counts, "reconciliation": reconciliation}
 
 
+# --- run history (GitHub Actions API + history.json carried from the last published site) ----
+
+TRIGGERS = {"schedule": "Nightly", "push": "Code change", "workflow_dispatch": "Manual"}
+HISTORY_KEEP = 120
+
+
+def short(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
+def parse_ts(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def history_entry(run_id: str | None, counts: dict, checks: dict, built_at: datetime) -> dict:
+    """What this build processed, for the run history. Appended to the published history.json."""
+    return {
+        "run_id": int(run_id) if run_id else None,
+        "built_at": built_at.isoformat(timespec="seconds"),
+        "files": counts["files"],
+        "raw_rows": counts["raw_rows"],
+        "gold_rows": counts["fact_encounters"] + counts["fact_stays"],
+        "checks_passed": checks["passed"],
+        "checks_failed": checks["failed"],
+    }
+
+
+def merge_history(previous: list[dict], current: dict) -> list[dict]:
+    kept = [h for h in previous if h.get("run_id") and h.get("run_id") != current["run_id"]]
+    if current["run_id"]:
+        kept.append(current)
+    return kept[-HISTORY_KEEP:]
+
+
+def run_history(api: dict, history: list[dict], current_run_id: str | None, now: datetime) -> list[dict]:
+    """One row per run of the live-demo workflow, newest first, joined to what each build processed."""
+    by_id = {h["run_id"]: h for h in history if h.get("run_id")}
+    rows = []
+    for r in api.get("workflow_runs", []):
+        started = parse_ts(r["run_started_at"])
+        current = current_run_id is not None and str(r["id"]) == str(current_run_id)
+        if current:
+            result, minutes = "current", (now - started).total_seconds() / 60
+        elif r["status"] != "completed":
+            result, minutes = "running", None
+        else:
+            result, minutes = r["conclusion"] or "unknown", (parse_ts(r["updated_at"]) - started).total_seconds() / 60
+        h = by_id.get(r["id"], {})
+        rows.append(
+            {
+                "id": r["id"],
+                "number": r["run_number"],
+                "attempt": r.get("run_attempt", 1),
+                "url": r["html_url"],
+                "trigger": TRIGGERS.get(r["event"], r["event"]),
+                "started": started,
+                "minutes": minutes,
+                "sha": r["head_sha"],
+                "message": short(
+                    ((r.get("head_commit") or {}).get("message") or "").splitlines()[0] if r.get("head_commit") else "",
+                    46,
+                ),
+                "result": result,
+                "raw_rows": h.get("raw_rows"),
+                "gold_rows": h.get("gold_rows"),
+            }
+        )
+    return rows
+
+
+def run_history_section(rows: list[dict], repo: str) -> str:
+    if not rows:
+        return ""
+    fmt = "{:,}".format
+    done = [r for r in rows if r["result"] not in ("current", "running")]
+    passed = sum(r["result"] == "success" for r in done)
+    failed = sum(r["result"] == "failure" for r in done)
+    other = len(done) - passed - failed
+    times = sorted(r["minutes"] for r in done if r["result"] == "success" and r["minutes"] is not None)
+    median = times[len(times) // 2] if times else None
+    summary = f"Last {len(done)} finished runs: {passed} passed, {failed} failed" + (
+        f", {other} cancelled or skipped" if other else ""
+    )
+    if median is not None:
+        summary += f". Typical build time {median:.0f} minutes."
+
+    def result_pill(r: dict) -> str:
+        match r["result"]:
+            case "success":
+                return f'<span class="pill good">{ICON_OK}Published</span>'
+            case "current":
+                return f'<span class="pill good">{ICON_OK}This build: checks passed</span>'
+            case "failure":
+                return f'<span class="pill bad">{ICON_BAD}Failed, not published</span>'
+            case "running":
+                return '<span class="pill warn">Running</span>'
+            case other:
+                return f'<span class="pill warn">{e(other.replace("_", " ").capitalize())}</span>'
+
+    def minutes(r: dict) -> str:
+        if r["minutes"] is None:
+            return "–"
+        text = f"{r['minutes']:.0f} min" if r["minutes"] >= 1 else "<1 min"
+        return text + (" so far" if r["result"] == "current" else "")
+
+    body = "".join(
+        f"<tr><td><a href='{e(r['url'])}'>#{r['number']}</a>{' (retry)' if r['attempt'] > 1 else ''}</td>"
+        f"<td>{e(r['trigger'])}</td><td>{e(fmt_date(r['started'].date()))}, {r['started'].strftime('%H:%M')}</td>"
+        f"<td class='num'>{minutes(r)}</td>"
+        f"<td class='commit'><a href='https://github.com/{e(repo)}/commit/{e(r['sha'])}'><code>{e(r['sha'][:7])}</code></a> "
+        f"<span class='small' title='{e(r['message'])}'>{e(r['message'])}</span></td>"
+        f"<td class='num'>{fmt(r['raw_rows']) if r['raw_rows'] is not None else '–'}</td>"
+        f"<td class='num'>{fmt(r['gold_rows']) if r['gold_rows'] is not None else '–'}</td>"
+        f"<td>{result_pill(r)}</td></tr>"
+        for r in rows
+    )
+    return f"""
+  <section class="section" aria-labelledby="history">
+    <div class="section-head"><div>
+      <h2 id="history">Run history</h2>
+      <p>Every run of the live-demo workflow, read from the GitHub Actions API at build time. A failed run never
+      publishes, so the site keeps the last good version. Row counts are recorded by each published build;
+      runs from before they were recorded show a dash.</p>
+    </div></div>
+    <p class="small" style="margin-bottom:8px">{e(summary)}</p>
+    <div class="panel scroll"><table>
+      <thead><tr><th>Run</th><th>Trigger</th><th>Started (UTC)</th><th class="num">Duration</th><th>Commit</th>
+        <th class="num">Raw rows</th><th class="num">Gold rows</th><th>Result</th></tr></thead>
+      <tbody>{body}</tbody></table></div>
+  </section>"""
+
+
 # --- rendering --------------------------------------------------------------------
 
 FONTS = (
@@ -463,7 +597,15 @@ def footer(repo: str) -> str:
 </div></footer>"""
 
 
-def render_pipeline(meta: dict, checks: dict, pipe: dict, demo: dict, repo: str, airflow: dict | None = None) -> str:
+def render_pipeline(
+    meta: dict,
+    checks: dict,
+    pipe: dict,
+    demo: dict,
+    repo: str,
+    airflow: dict | None = None,
+    history: list[dict] | None = None,
+) -> str:
     replay = demo["replay"]
     first = demo["first_pass"]
     fmt = "{:,}".format
@@ -535,6 +677,7 @@ def render_pipeline(meta: dict, checks: dict, pipe: dict, demo: dict, repo: str,
   </section>
 
   {flow_strip(pipe["counts"])}
+{run_history_section(history or [], repo)}
 
   <section class="section" aria-labelledby="deliveries">
     <div class="section-head"><div>
@@ -859,6 +1002,12 @@ def main() -> None:
     parser.add_argument("--target", type=Path, default=TARGET, help="dbt target folder")
     parser.add_argument("--demo-summary", type=Path, default=TARGET / "demo_pipeline.json")
     parser.add_argument("--chartjs-src", default=CHARTJS)
+    parser.add_argument(
+        "--runs-json", type=Path, default=TARGET / "runs.json", help="GitHub API list of live-demo workflow runs"
+    )
+    parser.add_argument(
+        "--history-json", type=Path, default=TARGET / "history.json", help="history.json from the last published site"
+    )
     args = parser.parse_args()
 
     dsn = os.environ.get("WAREHOUSE_DSN") or sys.exit("Set WAREHOUSE_DSN")
@@ -913,7 +1062,13 @@ def main() -> None:
     (out / "index.html").write_text(index)
     airflow_path = args.target / "airflow_run.json"
     airflow = json.loads(airflow_path.read_text()) if airflow_path.exists() else None
-    (out / "pipeline.html").write_text(render_pipeline(meta, checks, pipe, demo, repo, airflow))
+    run_id = os.environ.get("GITHUB_RUN_ID")
+    previous = json.loads(args.history_json.read_text()) if args.history_json.exists() else []
+    history = merge_history(previous, history_entry(run_id, pipe["counts"], checks, built_at))
+    (out / "history.json").write_text(json.dumps(history, indent=1) + "\n")
+    runs_api = json.loads(args.runs_json.read_text()) if args.runs_json.exists() else {}
+    runs = run_history(runs_api, history, run_id, built_at)
+    (out / "pipeline.html").write_text(render_pipeline(meta, checks, pipe, demo, repo, airflow, runs))
 
     docs = args.target / "static_index.html"
     if docs.exists():

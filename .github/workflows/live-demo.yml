@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  actions: read     # run history on the pipeline page
   pages: write
   id-token: write
 
@@ -123,6 +124,17 @@ jobs:
         run: >-
           python scripts/export_airflow_run.py --airflow-db "${{ runner.temp }}/airflow/airflow.db"
           --artifacts dbt/target/cosmos --out dbt/target
+
+      # Run history: past runs from the Actions API (failures included), and the row counts
+      # each published build recorded, carried forward from the live site's history.json.
+      - name: Fetch run history
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/actions/workflows/live-demo.yml/runs?per_page=30" > dbt/target/runs.json \
+            || echo '{}' > dbt/target/runs.json
+          curl -fsSL "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/history.json" \
+            -o dbt/target/history.json || echo '[]' > dbt/target/history.json
 
       - name: Build the site
         run: python scripts/build_site.py --out _site
