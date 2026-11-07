@@ -10,6 +10,7 @@ from scripts.build_site import (
     model_metadata,
     month_end,
     month_range,
+    replay_note,
     run_history,
     run_history_section,
 )
@@ -142,7 +143,10 @@ def test_run_history_joins_api_runs_to_recorded_counts():
     }
     now = datetime(2026, 11, 7, 10, 9, tzinfo=UTC)
     current = history_entry(
-        "3", {"files": 4, "raw_rows": 100, "fact_encounters": 60, "fact_stays": 5}, {"passed": 9, "failed": 0}, now
+        "3",
+        {"files": 4, "raw_rows": 100, "fact_encounters": 60, "fact_stays": 5},
+        {"tests": 9, "failed": 0, "recon_total": 2, "recon_failed": 0},
+        now,
     )
     history = merge_history([{"run_id": 1, "raw_rows": 90, "gold_rows": 50}, {"run_id": None}], current)
     assert [h["run_id"] for h in history] == [1, 3]
@@ -205,3 +209,11 @@ def test_flow_strip_reports_each_stage_from_real_counts():
     assert 'class="warn"' in html and "1 file quarantined" in html
     assert "replay added 0 rows" in html and "1 source tests passed" in html
     assert 'class="bad"' in html and "1 of 1 tests failed" in html
+
+
+def test_replay_note_explains_how_file_counts_add_up():
+    first = {"runs": 734, "files_loaded": 734}
+    replay = {"files_loaded": 0, "files_skipped": 735, "files_quarantined": 0}
+    note = replay_note(first, replay, 737)
+    assert "734 runs" in note and "saw 735 files" in note and "1 deliberately broken re-send" in note
+    assert "other 2 of the 737 files are the final day" in note

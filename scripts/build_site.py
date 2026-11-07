@@ -406,8 +406,8 @@ def history_entry(run_id: str | None, counts: dict, checks: dict, built_at: date
         "files": counts["files"],
         "raw_rows": counts["raw_rows"],
         "gold_rows": counts["fact_encounters"] + counts["fact_stays"],
-        "checks_passed": checks["passed"],
-        "checks_failed": checks["failed"],
+        "checks_passed": check_totals(checks)[0] - check_totals(checks)[1],
+        "checks_failed": check_totals(checks)[1],
     }
 
 
@@ -487,7 +487,7 @@ def run_history_section(rows: list[dict], repo: str) -> str:
         if r["minutes"] is None:
             return "–"
         text = f"{r['minutes']:.0f} min" if r["minutes"] >= 1 else "<1 min"
-        return text + (" so far" if r["result"] == "current" else "")
+        return ("≈ " + text) if r["result"] == "current" else text
 
     body = "".join(
         f"<tr><td><a href='{e(r['url'])}'>#{r['number']}</a>{' (retry)' if r['attempt'] > 1 else ''}</td>"
@@ -510,9 +510,11 @@ def run_history_section(rows: list[dict], repo: str) -> str:
     </div></div>
     <p class="small" style="margin-bottom:8px">{e(summary)}</p>
     <div class="panel scroll"><table>
+      <caption class="sr-only">Live-demo workflow runs, newest first</caption>
       <thead><tr><th>Run</th><th>Trigger</th><th>Started (UTC)</th><th class="num">Duration</th><th>Commit</th>
         <th class="num">Raw rows</th><th class="num">Gold rows</th><th>Result</th></tr></thead>
       <tbody>{body}</tbody></table></div>
+    {'<p class="small" style="margin-top:10px">≈ This build is timed when its pages were generated, just before deployment.</p>' if any(r["result"] == "current" for r in rows) else ""}
   </section>"""
 
 
@@ -564,28 +566,40 @@ def build_label(meta: dict, repo: str) -> str:
     return f"{run}{commit}"
 
 
-def checks_breakdown(checks: dict) -> str:
-    return f"{checks['tests']} data tests, {checks['models']} models, {checks['seeds']} seeds"
+def checks_text(checks: dict) -> str:
+    return (
+        f"{checks['tests']} dbt tests, {checks.get('recon_total', 0)} reconciliation checks; "
+        f"{checks['models']} models and {checks['seeds']} seeds built"
+    )
+
+
+def check_totals(checks: dict) -> tuple[int, int]:
+    """(checks run, checks failed): dbt data tests plus the reconciliation checks. Building a model or seed
+    is a step, not a check, but a failed step still fails the run."""
+    total = checks["tests"] + checks.get("recon_total", 0)
+    return total, checks["failed"] + checks.get("recon_failed", 0)
 
 
 def run_status(meta: dict, checks: dict, show_pipeline_link: bool = True, repo: str = "") -> str:
-    ok = checks["failed"] == 0
-    total = checks["passed"] + checks["failed"] + checks["warned"]
+    total, failed = check_totals(checks)
+    ok = failed == 0
     state = (
-        f'<p class="run-state">{ICON_OK}All {checks["passed"]} dbt checks passed</p>'
+        f'<p class="run-state">{ICON_OK}All {total} checks passed</p>'
         if ok
-        else f'<p class="run-state">{ICON_BAD}{checks["failed"]} of {total} dbt checks failed</p>'
+        else f'<p class="run-state">{ICON_BAD}{failed} of {total} checks failed</p>'
     )
+    period_from, period_to = meta["period"]
     links = []
     if show_pipeline_link:
         links.append('<a href="pipeline.html">See how it was built</a>')
     return f"""<aside class="run{"" if ok else " failed"}" aria-label="Latest pipeline run">
       {state}
       <dl>
-        <dt>Checks</dt><dd>{e(checks_breakdown(checks))}</dd>
-        <dt>Rebuilt</dt><dd>{e(meta["built_at_text"])}</dd>
-        <dt>Build</dt><dd>{build_label(meta, repo)}</dd>
-        <dt>Data through</dt><dd>{e(fmt_date(meta["window"]["to"]))}</dd>
+        <dt>Checks</dt><dd>{checks["tests"]} dbt data tests, {checks.get("recon_total", 0)} reconciliation checks</dd>
+        <dt>Built</dt><dd>{checks["models"]} dbt models and {checks["seeds"]} seeds</dd>
+        <dt>Reporting period</dt><dd>{e(fmt_date(period_from))} – {e(fmt_date(period_to))}</dd>
+        <dt>Latest delivery</dt><dd>{e(fmt_date(meta["window"]["to"]))}</dd>
+        <dt>Build</dt><dd>{build_label(meta, repo)}, {e(meta["built_at_text"])}</dd>
       </dl>
       <p class="links">{"".join(links)}</p>
     </aside>"""
@@ -736,6 +750,26 @@ def footer(repo: str, meta: dict | None = None) -> str:
 </div></footer>"""
 
 
+def replay_note(first: dict, replay: dict, total_files: int) -> str:
+    """How the replay table's counts add up to the total number of files delivered."""
+    script_files = replay["files_loaded"] + replay["files_skipped"] + replay.get("files_quarantined", 0)
+    extra = script_files - first["runs"]
+    final = total_files - script_files
+    note = (
+        f"How the counts add up: one ingestion run per source per day, so {first['runs']:,} runs for the days "
+        f"ingested by script. They saw {script_files:,} files"
+    )
+    if extra > 0:
+        note += f": one per run, plus {extra} deliberately broken re-send{'s' if extra != 1 else ''}"
+    note += "."
+    if final > 0:
+        note += (
+            f" The other {final:,} of the {total_files:,} files are the final day's deliveries, ingested by the "
+            "Airflow DAG instead."
+        )
+    return note
+
+
 def render_pipeline(
     meta: dict,
     checks: dict,
@@ -849,13 +883,16 @@ def render_pipeline(
     </div>{replay_pill}</div>
     <div class="panel scroll"><table>
       <thead><tr><th>Pass</th><th class="num">Ingestion runs</th><th class="num">Files loaded</th>
-        <th class="num">Files skipped as already ingested</th><th class="num">Rows added</th></tr></thead>
+        <th class="num">Files quarantined</th><th class="num">Files skipped as already ingested</th><th class="num">Rows added</th></tr></thead>
       <tbody>
         <tr><td>First load</td><td class="num">{fmt(first["runs"])}</td><td class="num">{fmt(first["files_loaded"])}</td>
+          <td class="num">{fmt(first.get("files_quarantined", 0))}</td>
           <td class="num">{fmt(first["files_skipped"])}</td><td class="num">{fmt(first["rows_loaded"])}</td></tr>
         <tr><td>Replay of every day</td><td class="num">{fmt(replay["runs"])}</td><td class="num">{fmt(replay["files_loaded"])}</td>
+          <td class="num">{fmt(replay.get("files_quarantined", 0))}</td>
           <td class="num">{fmt(replay["files_skipped"])}</td><td class="num">{fmt(replay["rows_loaded"])}</td></tr>
       </tbody></table></div>
+    <p class="small" style="margin-top:10px">{e(replay_note(first, replay, pipe["counts"]["files"]))}</p>
   </section>
 
   <section class="section" aria-labelledby="quality">
@@ -1178,11 +1215,14 @@ def main() -> None:
 
     window_from, window_to = date.fromisoformat(demo["window"]["from"]), date.fromisoformat(demo["window"]["to"])
     months = month_range(window_from, window_to)
+    meta["period"] = (months[0], month_end(months[-1]))
     with psycopg.connect(dsn) as conn:
         data_through = query(conn, "SELECT max(start_date) AS d FROM staging.stg_encounters")[0]["d"]
         data = dashboard_data(conn, months, data_through)
         pipe = pipeline_data(conn)
     data["meta"] = meta
+    checks["recon_total"] = len(pipe["reconciliation"])
+    checks["recon_failed"] = sum(not r["passed"] for r in pipe["reconciliation"])
     manifest = json.loads((args.target / "manifest.json").read_text())
     pipe["layer_tests"] = layer_tests(manifest, json.loads((args.target / "run_results.json").read_text()))
     replay = demo["replay"]
@@ -1238,7 +1278,8 @@ def main() -> None:
         '<meta http-equiv="refresh" content="0; url=../model.html"><a href="../model.html">Data model</a>'
     )
 
-    print(f"Site written to {out}: {checks['passed']} checks passed, {checks['failed']} failed")
+    total, failed = check_totals(checks)
+    print(f"Site written to {out}: {total - failed} of {total} checks passed ({checks_text(checks)})")
 
 
 if __name__ == "__main__":
