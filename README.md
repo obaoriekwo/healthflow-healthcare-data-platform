@@ -47,7 +47,7 @@ Every night, GitHub Actions rebuilds the whole platform from an empty database a
 5. Publishes three pages: the [dashboard](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/),
    the [pipeline status](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/pipeline.html)
    (deliveries, quarantine log, replay check, test results) and the
-   [data model](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/model/index.html) (dbt docs with lineage).
+   [data model](https://obaoriekwo.github.io/healthflow-healthcare-data-platform/model.html) (star schema and data dictionary, plus the full dbt docs).
 
 If any step or test fails, nothing is published, so the site always shows a run that passed.
 Workflow: [`.github/workflows/live-demo.yml`](.github/workflows/live-demo.yml).

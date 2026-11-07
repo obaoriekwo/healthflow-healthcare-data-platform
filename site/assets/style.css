@@ -256,6 +256,72 @@ footer {
 }
 footer p { max-width: 80ch; }
 
+/* ---- Data model page ------------------------------------------------------------------- */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.erd {
+  position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px 72px; align-items: start; padding: 28px; background: var(--panel);
+  background-image: linear-gradient(var(--graph) 1px, transparent 1px), linear-gradient(90deg, var(--graph) 1px, transparent 1px);
+  background-size: 24px 24px; border: 1px solid var(--rule); border-radius: var(--radius);
+}
+.erd-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 1; }
+.erd-lines g { color: var(--muted); transition: color 0.15s, opacity 0.15s; }
+.erd-lines path, .erd-lines line { stroke: currentColor; stroke-width: 1.5; fill: none; }
+.erd-lines circle { fill: currentColor; }
+.erd.focusing .erd-lines g { opacity: 0.25; }
+.erd.focusing .erd-lines g.lit { opacity: 1; color: var(--series-1); }
+.erd-lines g.lit path { stroke-width: 2.25; }
+.entity {
+  position: relative; z-index: 2; background: var(--panel); border: 1px solid var(--rule-strong);
+  border-radius: var(--radius); font-size: 14px; transition: box-shadow 0.15s;
+}
+.entity.lit { box-shadow: 0 0 0 2px var(--series-1); }
+.entity[data-table="dim_patient"] { grid-row: 1 / span 2; align-self: center; }
+.entity header {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  padding: 10px 12px; border-bottom: 1px solid var(--rule); background: var(--series-1-wash);
+}
+.entity h3 { font-size: 15px; font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-weight: 700; }
+.entity header span { color: var(--muted); font-size: 12.5px; }
+.entity p { color: var(--ink-2); padding: 8px 12px 4px; font-size: 13.5px; line-height: 1.45; }
+.entity ul { list-style: none; margin: 0; padding: 4px 0; }
+.entity li { display: flex; align-items: center; gap: 6px; padding: 5px 12px; flex-wrap: wrap; }
+.entity .cname { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: 13px; }
+.entity .ctype { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+.entity .ref { display: none; color: var(--muted); font-size: 12.5px; width: 100%; padding-left: 34px; }
+.entity .more { display: block; padding: 8px 12px 10px; font-size: 13.5px; border-top: 1px solid var(--rule); }
+.key {
+  display: inline-block; min-width: 26px; text-align: center; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  padding: 1px 4px; border-radius: 3px; border: 1px solid currentColor;
+}
+.key.pk { color: var(--warn); background: var(--warn-wash); }
+.key.fk { color: var(--series-1); background: var(--series-1-wash); }
+.key + .key { margin-left: 4px; }
+.rels { margin-top: 14px; }
+.rels ul { columns: 2; column-gap: 32px; padding-left: 18px; font-size: 14px; }
+.rels li { margin: 4px 0; break-inside: avoid; }
+.dict-controls { display: flex; gap: 16px; flex-wrap: wrap; }
+input[type="search"] {
+  font: inherit; font-size: 15px; color: var(--ink); background: var(--panel); border: 1px solid var(--ink-2);
+  border-radius: var(--radius); padding: 7px 10px; min-width: 240px;
+}
+#dict-count { margin: 0 0 8px; }
+table.dict td code { background: none; padding: 0; }
+table.dict td.wrap-text { min-width: 280px; width: 45%; }
+.empty { padding: 20px 12px; color: var(--ink-2); }
+@media (max-width: 960px) {
+  .erd { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 16px; }
+  .erd .entity { grid-column: 1 !important; grid-row: auto !important; }
+  .erd-lines { display: none; }
+  .entity .ref { display: block; }
+  .rels ul { columns: 1; }
+}
+@media (max-width: 760px) {
+  .dict-controls { width: 100%; }
+  .dict-controls .filter { flex-direction: column; align-items: stretch; gap: 4px; }
+  input[type="search"] { min-width: 0; width: 100%; }
+}
+
 /* ---- Small screens --------------------------------------------------------------------- */
 @media (max-width: 960px) {
   .hero { grid-template-columns: minmax(0, 1fr); gap: 28px; padding-top: 40px; }

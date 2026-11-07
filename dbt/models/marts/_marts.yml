@@ -1,144 +1,396 @@
 version: 2
-
 models:
-  - name: dim_date
-    description: Calendar dimension. date_key is YYYYMMDD.
-    columns:
-      - name: date_key
-        data_tests: [unique, not_null]
-
-  - name: dim_department
-    description: Hospital departments.
-    columns:
-      - name: department_key
-        data_tests: [unique, not_null]
-
-  - name: dim_patient
-    description: >
-      Patient dimension, SCD type 2: one row per version. Join facts on patient_key.
-      Contains no direct identifiers (they are withheld by the source extract).
-    columns:
-      - name: patient_key
-        data_tests: [unique, not_null]
-      - name: patient_id
-        data_tests: [not_null]
-      - name: valid_to
-        data_tests:
-          - not_before:
-              arguments:
-                other_column: valid_from
-
-  - name: fact_encounters
-    description: >
-      Grain: one row per encounter (latest version). Incremental (delete+insert on
-      encounter_id) with a lookback, so corrected records replace earlier versions.
-    columns:
-      - name: encounter_id
-        data_tests: [unique, not_null]
-      - name: patient_key
-        description: The patient version valid when the encounter started.
-        data_tests:
-          - not_null
-          - relationships:
-              arguments:
-                to: ref('dim_patient')
-                field: patient_key
-      - name: start_date_key
-        data_tests:
-          - not_null
-          - relationships:
-              arguments:
-                to: ref('dim_date')
-                field: date_key
-      - name: department_key
-        data_tests:
-          - relationships:
-              arguments:
-                to: ref('dim_department')
-                field: department_key
-      - name: hospital_stay_id
-        data_tests:
-          - relationships:
-              arguments:
-                to: ref('fact_hospital_stays')
-                field: hospital_stay_id
-      - name: patient_age_at_encounter
-        data_tests:
-          - accepted_range:
-              arguments:
-                min_value: 0
-                max_value: 120
-
-  - name: fact_hospital_stays
-    description: >
-      Grain: one row per hospital stay (transfers merged), with 30-day readmission
-      evaluation. See docs/readmission_definition.md.
-    columns:
-      - name: hospital_stay_id
-        data_tests: [unique, not_null]
-      - name: patient_key
-        data_tests:
-          - not_null
-          - relationships:
-              arguments:
-                to: ref('dim_patient')
-                field: patient_key
-      - name: admitting_department_key
-        data_tests:
-          - not_null
-          - relationships:
-              arguments:
-                to: ref('dim_department')
-                field: department_key
-      - name: admission_date_key
-        data_tests:
-          - relationships:
-              arguments:
-                to: ref('dim_date')
-                field: date_key
-      - name: readmission_stay_id
-        data_tests:
-          - relationships:
-              arguments:
-                to: ref('fact_hospital_stays')
-                field: hospital_stay_id
-
-  - name: mart_hospital_operations
-    description: Daily activity, admissions, discharges and midnight census.
-    columns:
-      - name: date_key
-        data_tests: [unique, not_null]
-      - name: midnight_census
-        data_tests:
-          - accepted_range:
-              arguments:
-                min_value: 0
-
-  - name: mart_emergency_department
-    description: Daily ED volume and time in department, including the 4-hour measure.
-    columns:
-      - name: date_key
-        data_tests: [unique, not_null]
-
-  - name: mart_patient_readmissions
-    description: >
-      30-day readmissions by discharge month and admitting department. Sum readmissions
-      and index_stays before dividing; never average readmission_rate_pct.
+- name: dim_date
+  description: Calendar dimension. date_key is YYYYMMDD.
+  columns:
+  - name: date_key
     data_tests:
-      - unique_combination:
-          arguments:
-            columns: [discharge_month, department_key]
-    columns:
-      - name: readmission_rate_pct
-        data_tests:
-          - accepted_range:
-              arguments:
-                min_value: 0
-                max_value: 100
-
-  - name: mart_department_performance
-    description: Monthly department workload and length of stay.
+    - unique
+    - not_null
+    description: Surrogate key in YYYYMMDD form, e.g. 20260115.
+  - name: calendar_date
+    description: The calendar day.
+  - name: iso_year
+    description: ISO 8601 week-numbering year.
+  - name: iso_week
+    description: ISO 8601 week number (1-53).
+  - name: year
+    description: Calendar year.
+  - name: quarter
+    description: Calendar quarter (1-4).
+  - name: month
+    description: Month number (1-12).
+  - name: month_name
+    description: Month name, e.g. January.
+  - name: year_month
+    description: Year and month as YYYY-MM, for grouping.
+  - name: month_start
+    description: First day of the month.
+  - name: day_of_week
+    description: 'ISO day of week: 1 = Monday, 7 = Sunday.'
+  - name: day_name
+    description: Day name, e.g. Monday.
+  - name: is_weekend
+    description: True on Saturdays and Sundays.
+- name: dim_department
+  description: Hospital departments.
+  columns:
+  - name: department_key
     data_tests:
-      - unique_combination:
-          arguments:
-            columns: [discharge_month, department_key]
+    - unique
+    - not_null
+    description: Department code, e.g. ICU or GENMED.
+  - name: department_name
+    description: Department name shown in reports.
+  - name: service_line
+    description: 'Group of related departments: Medicine, Surgery, Critical Care, Mental Health.'
+  - name: is_critical_care
+    description: True for intensive care.
+- name: dim_patient
+  description: 'Patient dimension, SCD type 2: one row per version. Join facts on patient_key. Contains no direct
+    identifiers (they are withheld by the source extract).
+
+    '
+  columns:
+  - name: patient_key
+    data_tests:
+    - unique
+    - not_null
+    description: Surrogate key for one version of a patient. Facts join on this key.
+  - name: patient_id
+    data_tests:
+    - not_null
+    description: Source system patient identifier (pseudonymous). The same for every version.
+  - name: valid_to
+    data_tests:
+    - not_before:
+        arguments:
+          other_column: valid_from
+    description: When this version was replaced; empty for the current version.
+  - name: version_number
+    description: 1 for the first version received, increasing with each change.
+  - name: valid_from
+    description: When this version became valid. The first version is valid from 1900-01-01.
+  - name: is_current
+    description: True for the patient's latest version.
+  - name: birth_date
+    description: Date of birth.
+  - name: death_date
+    description: Date of death, if recorded by the source at the time of this version.
+  - name: is_deceased
+    description: True when this version has a death date.
+  - name: gender
+    description: male, female or unknown.
+  - name: race
+    description: Race as recorded by the source.
+  - name: ethnicity
+    description: Ethnicity as recorded by the source.
+  - name: marital_status
+    description: married, single, divorced, widowed or unknown.
+  - name: county
+    description: County of residence.
+  - name: state
+    description: State of residence.
+  - name: income
+    description: Annual household income from the source, in USD.
+- name: fact_encounters
+  description: 'Grain: one row per encounter (latest version). Incremental (delete+insert on encounter_id) with
+    a lookback, so corrected records replace earlier versions.
+
+    '
+  columns:
+  - name: encounter_id
+    description: Source encounter identifier. Primary key.
+    data_tests:
+    - unique
+    - not_null
+  - name: patient_key
+    description: The patient version valid when the encounter started.
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_patient')
+          field: patient_key
+  - name: start_date_key
+    description: Day the encounter started (dim_date).
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_key
+  - name: department_key
+    description: Department derived from the encounter type (dim_department); inpatient encounters only.
+    data_tests:
+    - relationships:
+        arguments:
+          to: ref('dim_department')
+          field: department_key
+  - name: hospital_stay_id
+    description: The hospital stay this encounter belongs to, for inpatient encounters (fact_hospital_stays).
+    data_tests:
+    - relationships:
+        arguments:
+          to: ref('fact_hospital_stays')
+          field: hospital_stay_id
+  - name: patient_age_at_encounter
+    description: Patient's age in years when the encounter started.
+    data_tests:
+    - accepted_range:
+        arguments:
+          min_value: 0
+          max_value: 120
+  - name: patient_id
+    description: Source patient identifier, for convenience alongside patient_key.
+  - name: end_date_key
+    description: Day the encounter ended (dim_date).
+  - name: organization_id
+    description: Source identifier of the hospital or clinic.
+  - name: provider_id
+    description: Source identifier of the clinician.
+  - name: payer_id
+    description: Source identifier of the insurer or payer.
+  - name: encounter_class
+    description: 'Kind of contact: ambulatory, emergency, inpatient, wellness, outpatient, urgentcare, virtual and
+      others.'
+  - name: encounter_code
+    description: SNOMED CT code of the encounter type.
+  - name: encounter_description
+    description: Description of the encounter type.
+  - name: reason_code
+    description: SNOMED CT code of the reason for the encounter, if any.
+  - name: reason_description
+    description: Description of the reason.
+  - name: started_at
+    description: When the encounter started (UTC).
+  - name: ended_at
+    description: When the encounter ended (UTC).
+  - name: duration_hours
+    description: Length of the encounter in hours.
+  - name: base_encounter_cost
+    description: Base cost of the encounter.
+  - name: total_claim_cost
+    description: Total claimed cost, after any corrections.
+  - name: payer_coverage
+    description: Amount covered by the payer.
+  - name: patient_cost
+    description: Total claim cost minus payer coverage.
+  - name: was_corrected
+    description: True if the source sent more than one version of this encounter.
+  - name: first_available_date
+    description: Day the source first delivered this encounter.
+  - name: last_ingested_at
+    description: When the newest version was loaded; drives incremental processing.
+- name: fact_hospital_stays
+  description: 'Grain: one row per hospital stay (transfers merged), with 30-day readmission evaluation. See docs/readmission_definition.md.
+
+    '
+  columns:
+  - name: hospital_stay_id
+    description: 'Identifier of the stay: the first encounter_id in the stay. Primary key.'
+    data_tests:
+    - unique
+    - not_null
+  - name: patient_key
+    description: The patient version valid at admission (dim_patient).
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_patient')
+          field: patient_key
+  - name: admitting_department_key
+    description: Department of the first encounter in the stay (dim_department).
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_department')
+          field: department_key
+  - name: admission_date_key
+    description: Day of admission (dim_date).
+    data_tests:
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_key
+  - name: readmission_stay_id
+    description: The unplanned stay that counts as this stay's readmission, if any.
+    data_tests:
+    - relationships:
+        arguments:
+          to: ref('fact_hospital_stays')
+          field: hospital_stay_id
+  - name: patient_id
+    description: Source patient identifier, for convenience alongside patient_key.
+  - name: discharge_date_key
+    description: Day of final discharge (dim_date).
+  - name: discharging_department_key
+    description: Department of the last encounter in the stay (dim_department).
+  - name: organization_id
+    description: Source identifier of the hospital.
+  - name: admitted_at
+    description: Admission time (UTC).
+  - name: discharged_at
+    description: Final discharge time (UTC).
+  - name: length_of_stay_days
+    description: Days from admission to final discharge.
+  - name: transfer_count
+    description: Number of transfers between wards within the stay.
+  - name: included_critical_care
+    description: True if any part of the stay was in intensive care.
+  - name: is_planned
+    description: True for planned admissions (transplant, rehabilitation, elective, scheduled cancer treatment).
+  - name: planned_reason
+    description: Why the admission counts as planned.
+  - name: age_at_admission
+    description: Patient's age in years at admission.
+  - name: died_in_hospital
+    description: True if the patient died during the stay.
+  - name: total_claim_cost
+    description: Sum of claim costs for all encounters in the stay.
+  - name: is_index_stay
+    description: True if the stay counts in the readmission denominator.
+  - name: index_exclusion_reason
+    description: 'Why the stay is not an index stay: died_in_hospital, under_minimum_age or follow_up_window_incomplete.'
+  - name: is_readmitted_within_window
+    description: True if an unplanned stay began within 30 days of discharge.
+  - name: days_to_readmission
+    description: Days from discharge to the readmission, if any.
+- name: mart_hospital_operations
+  description: Daily activity, admissions, discharges and midnight census.
+  columns:
+  - name: date_key
+    description: The day (dim_date). Primary key.
+    data_tests:
+    - unique
+    - not_null
+  - name: midnight_census
+    description: Patients in a hospital bed at midnight at the end of the day.
+    data_tests:
+    - accepted_range:
+        arguments:
+          min_value: 0
+  - name: calendar_date
+    description: The day.
+  - name: encounters
+    description: Encounters that started that day.
+  - name: patients_seen
+    description: Distinct patients with an encounter that day.
+  - name: emergency_visits
+    description: Emergency department visits.
+  - name: urgent_care_visits
+    description: Urgent care visits.
+  - name: outpatient_visits
+    description: Ambulatory, outpatient and wellness visits.
+  - name: admissions
+    description: Hospital stays that started that day.
+  - name: unplanned_admissions
+    description: Admissions that were not planned.
+  - name: discharges
+    description: Hospital stays that ended that day.
+  - name: discharged_stay_days
+    description: Total length of the stays that ended that day; divide by discharges for the average.
+  - name: total_claim_cost
+    description: Claim cost of the day's encounters.
+- name: mart_emergency_department
+  description: Daily ED volume and time in department, including the 4-hour measure.
+  columns:
+  - name: date_key
+    data_tests:
+    - unique
+    - not_null
+    description: Day of the visits (dim_date).
+  - name: ed_visits
+    description: Emergency department visits.
+  - name: ed_patients
+    description: Distinct patients.
+  - name: avg_hours_in_department
+    description: Mean time in the department, in hours.
+  - name: median_hours_in_department
+    description: Median time in the department, in hours.
+  - name: p95_hours_in_department
+    description: 95th percentile time in the department, in hours.
+  - name: within_4_hours
+    description: Visits completed within 4 hours.
+  - name: over_4_hours
+    description: Visits longer than 4 hours.
+  - name: over_12_hours
+    description: Visits longer than 12 hours.
+- name: mart_patient_readmissions
+  description: '30-day readmissions by discharge month and admitting department. Sum readmissions and index_stays
+    before dividing; never average readmission_rate_pct.
+
+    '
+  data_tests:
+  - unique_combination:
+      arguments:
+        columns:
+        - discharge_month
+        - department_key
+  columns:
+  - name: readmission_rate_pct
+    description: readmissions / index_stays x 100. Sum the counts across rows before dividing; don't average this.
+    data_tests:
+    - accepted_range:
+        arguments:
+          min_value: 0
+          max_value: 100
+  - name: discharge_month
+    description: Month of the index stay's discharge.
+  - name: department_key
+    description: Admitting department (dim_department).
+  - name: discharges
+    description: Stays discharged in the month.
+  - name: index_stays
+    description: Stays eligible for the readmission measure (denominator).
+  - name: readmissions
+    description: Index stays followed by an unplanned readmission within 30 days (numerator).
+  - name: excluded_died
+    description: Stays excluded because the patient died in hospital.
+  - name: excluded_under_age
+    description: Stays excluded because the patient was under 18.
+  - name: excluded_follow_up_incomplete
+    description: Stays excluded because 30 days have not yet passed.
+  - name: avg_days_to_readmission
+    description: Average days between discharge and readmission.
+- name: mart_department_performance
+  description: Monthly department workload and length of stay.
+  data_tests:
+  - unique_combination:
+      arguments:
+        columns:
+        - discharge_month
+        - department_key
+  columns:
+  - name: discharge_month
+    description: Month of discharge.
+  - name: department_key
+    description: Admitting department (dim_department).
+  - name: department_name
+    description: Department name.
+  - name: service_line
+    description: Service line of the department.
+  - name: discharges
+    description: Stays discharged.
+  - name: patients
+    description: Distinct patients.
+  - name: planned_stays
+    description: Planned stays.
+  - name: unplanned_stays
+    description: Unplanned stays.
+  - name: total_stay_days
+    description: Sum of lengths of stay.
+  - name: avg_length_of_stay_days
+    description: Mean length of stay in days.
+  - name: median_length_of_stay_days
+    description: Median length of stay in days.
+  - name: stays_with_critical_care
+    description: Stays that included intensive care.
+  - name: transfers
+    description: Transfers between wards.
+  - name: in_hospital_deaths
+    description: Patients who died during the stay.
+  - name: total_claim_cost
+    description: Claim cost of the stays.

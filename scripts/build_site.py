@@ -7,11 +7,13 @@ Reads:
     audit.*                          deliveries, quarantine, replay
     dbt/target/run_results.json      which models and tests ran, and their status
     dbt/target/static_index.html     dbt docs (from `dbt docs generate --static`)
+    dbt/target/manifest.json         models, columns, tests (for the data model page)
+    dbt/target/catalog.json          column types from the warehouse
     dbt/target/demo_pipeline.json    written by scripts/demo_pipeline.py
     dbt/target/airflow_run.json      written by scripts/export_airflow_run.py (optional)
 
-Writes _site/index.html (dashboard), _site/pipeline.html (pipeline status) and
-_site/model/index.html (dbt docs). Used by .github/workflows/live-demo.yml.
+Writes _site/index.html (dashboard), _site/pipeline.html (pipeline status),
+_site/model.html (ERD and data dictionary) and _site/dbt-docs/index.html (dbt docs). Used by .github/workflows/live-demo.yml.
 """
 
 from __future__ import annotations
@@ -407,7 +409,7 @@ def header(active: str, repo: str) -> str:
 
     return f"""<header class="top"><div class="wrap">
   <a class="brand" href="index.html">{LOGO}HealthFlow</a>
-  <nav aria-label="Main">{link("index.html", "Dashboard", "dashboard")}{link("pipeline.html", "Pipeline", "pipeline")}{link("model/index.html", "Data model", "model")}</nav>
+  <nav aria-label="Main">{link("index.html", "Dashboard", "dashboard")}{link("pipeline.html", "Pipeline", "pipeline")}{link("model.html", "Data model", "model")}</nav>
   <a class="source" href="https://github.com/{e(repo)}">Source on GitHub</a>
 </div></header>"""
 
@@ -588,12 +590,264 @@ def render_pipeline(meta: dict, checks: dict, pipe: dict, demo: dict, repo: str,
       <thead><tr><th>Business rule</th><th>Test</th><th>Status</th></tr></thead>
       <tbody>{rules}</tbody></table></div>
     <ul class="notes">
-      <li>Every model and test is documented, with its lineage, on the <a href="model/index.html">data model</a> page.</li>
+      <li>Every model and test is documented, with its lineage, on the <a href="model.html">data model</a> page.</li>
       <li>The readmission rules are written out in <a href="https://github.com/{e(repo)}/blob/main/docs/readmission_definition.md">the readmission definition</a>.</li>
     </ul>
   </section>
 </main>
 {footer(repo)}
+</body>
+</html>
+"""
+
+
+# --- data model page (from dbt's manifest.json and catalog.json) ------------------
+
+ERD_LAYOUT = [  # (column, model) for the star-schema diagram
+    (1, "dim_patient"),
+    (2, "fact_encounters"),
+    (2, "fact_hospital_stays"),
+    (3, "dim_department"),
+    (3, "dim_date"),
+]
+LAYERS = [
+    ("staging", "Staging", "Typed, renamed, latest version of each source record. Views."),
+    ("intermediate", "Intermediate", "Business logic: stays built from encounters, readmissions evaluated."),
+    ("marts", "Gold", "Star schema and reporting marts that the dashboard reads."),
+]
+SHORT_TYPES = {
+    "character varying": "varchar",
+    "timestamp with time zone": "timestamptz",
+    "timestamp without time zone": "timestamp",
+    "double precision": "float8",
+}
+
+
+def first_sentence(text: str) -> str:
+    text = " ".join((text or "").split())
+    end = text.find(". ")
+    return text if end == -1 else text[: end + 1]
+
+
+def model_metadata(manifest: dict, catalog: dict) -> dict:
+    """Tables, columns, keys and relationships of the gold layer, as dbt tests and documents them."""
+    nodes = manifest["nodes"]
+    models = {n["name"]: n for n in nodes.values() if n["resource_type"] == "model"}
+    tests = [n for n in nodes.values() if n["resource_type"] == "test" and n.get("test_metadata")]
+
+    tested: dict[tuple[str, str], set[str]] = {}
+    composite: dict[str, list[str]] = {}
+    relationships = []
+    for t in tests:
+        attached = t.get("attached_node") or (t["depends_on"]["nodes"] or [""])[0]
+        model = attached.split(".")[-1]
+        name, kwargs = t["test_metadata"]["name"], t["test_metadata"].get("kwargs", {})
+        column = t.get("column_name") or kwargs.get("column_name")
+        if column:
+            tested.setdefault((model, column), set()).add(name)
+        if name == "unique_combination":
+            composite[model] = list(kwargs.get("columns") or [])
+        if name == "relationships":
+            to = str(kwargs.get("to", "")).split("'")[1] if "'" in str(kwargs.get("to", "")) else str(kwargs.get("to"))
+            relationships.append({"from": model, "column": column, "to": to, "field": kwargs.get("field")})
+    relationships.sort(key=lambda r: (r["from"], r["column"]))
+
+    gold = sorted(
+        (m for m in models.values() if m["config"].get("schema") == "marts"),
+        key=lambda m: (not m["name"].startswith(("dim_", "fact_")), m["name"]),
+    )
+    tables = {}
+    for m in gold:
+        cat = catalog["nodes"].get(m["unique_id"], {}).get("columns", {})
+        cols = []
+        for cname, c in sorted(cat.items(), key=lambda kv: kv[1]["index"]):
+            t = tested.get((m["name"], cname), set())
+            fk = next((r for r in relationships if r["from"] == m["name"] and r["column"] == cname), None)
+            pk = {"unique", "not_null"} <= t or cname in composite.get(m["name"], [])
+            cols.append(
+                {
+                    "name": cname,
+                    "type": SHORT_TYPES.get(c["type"], c["type"]),
+                    "pk": pk,
+                    "fk": f"{fk['to']}.{fk['field']}" if fk else None,
+                    "tests": sorted(t),
+                    "description": m["columns"].get(cname, {}).get("description", ""),
+                }
+            )
+        tables[m["name"]] = {
+            "name": m["name"],
+            "description": first_sentence(m.get("description", "")),
+            "materialized": m["config"].get("materialized"),
+            "columns": cols,
+        }
+
+    layers = []
+    for schema, label, what in LAYERS:
+        members = sorted((m for m in models.values() if m["config"].get("schema") == schema), key=lambda m: m["name"])
+        layers.append(
+            {
+                "label": label,
+                "what": what,
+                "models": [
+                    {
+                        "name": m["name"],
+                        "materialized": m["config"].get("materialized"),
+                        "description": first_sentence(m.get("description", "")),
+                    }
+                    for m in members
+                ],
+            }
+        )
+    sources = sorted(f"{s['source_name']}.{s['name']}" for s in manifest.get("sources", {}).values())
+    seeds = sorted(n["name"] for n in nodes.values() if n["resource_type"] == "seed")
+    return {
+        "tables": tables,
+        "relationships": relationships,
+        "layers": layers,
+        "sources": sources,
+        "seeds": seeds,
+        "tests": sum(1 for n in nodes.values() if n["resource_type"] == "test"),
+    }
+
+
+def key_badge(c: dict) -> str:
+    out = []
+    if c["pk"]:
+        out.append('<span class="key pk" title="Primary key: unique and never empty, tested by dbt">PK</span>')
+    if c["fk"]:
+        out.append(f'<span class="key fk" title="Foreign key to {e(c["fk"])}, tested by dbt">FK</span>')
+    return "".join(out)
+
+
+def entity_card(t: dict, col: int) -> str:
+    keys = [c for c in t["columns"] if c["pk"] or c["fk"]]
+    rows = "".join(
+        f'<li data-col="{e(c["name"])}">{key_badge(c)}<span class="cname">{e(c["name"])}</span>'
+        f'<span class="ctype">{e(c["type"])}</span>'
+        + (f'<span class="ref">→ {e(c["fk"].split(".")[0])}</span>' if c["fk"] else "")
+        + "</li>"
+        for c in keys
+    )
+    more = len(t["columns"]) - len(keys)
+    return (
+        f'<article class="entity" id="erd-{e(t["name"])}" data-table="{e(t["name"])}" style="grid-column:{col}">'
+        f"<header><h3>{e(t['name'])}</h3><span>{e(t['materialized'])}</span></header>"
+        f"<p>{e(t['description'])}</p><ul>{rows}</ul>"
+        f'<a class="more" href="#dictionary" data-filter="{e(t["name"])}">+ {more} more columns in the dictionary</a>'
+        "</article>"
+    )
+
+
+def render_model(meta: dict, md: dict, repo: str, has_docs: bool) -> str:
+    tables, rels = md["tables"], md["relationships"]
+    gold_cols = sum(len(t["columns"]) for t in tables.values())
+    erd = "".join(entity_card(tables[name], col) for col, name in ERD_LAYOUT if name in tables)
+    erd_names = {name for _, name in ERD_LAYOUT}
+    rel_rows = "".join(
+        f"<li><code>{e(r['from'])}.{e(r['column'])}</code> <span aria-hidden='true'>→</span>"
+        f"<span class='sr-only'>references</span> <code>{e(r['to'])}.{e(r['field'])}</code></li>"
+        for r in rels
+        if r["from"] in erd_names
+    )
+    rel_json = json.dumps(
+        [r for r in rels if r["from"] in erd_names and r["to"] in erd_names and r["from"] != r["to"]]
+    ).replace("</", "<\\/")
+
+    layer_rows = "".join(
+        f"<tr><td>{e(layer['label'])}</td><td><code>{e(m['name'])}</code></td><td>{e(m['materialized'])}</td>"
+        f"<td class='wrap-text'>{e(m['description'])}</td></tr>"
+        for layer in md["layers"]
+        for m in layer["models"]
+    )
+    options = "".join(f'<option value="{e(n)}">{e(n)}</option>' for n in tables)
+    dict_rows = "".join(
+        f'<tr data-table="{e(t["name"])}"><td><code>{e(t["name"])}</code></td><td><code>{e(c["name"])}</code></td>'
+        f'<td>{e(c["type"])}</td><td class="keycell">{key_badge(c)}'
+        + (f'<span class="small" title="{e(c["fk"])}"> → {e(c["fk"].split(".")[0])}</span>' if c["fk"] else "")
+        + f'</td><td class="wrap-text">{e(c["description"])}</td></tr>'
+        for t in tables.values()
+        for c in t["columns"]
+    )
+    docs_link = (
+        '<a href="dbt-docs/index.html">Full dbt documentation with lineage graph</a>'
+        if has_docs
+        else "dbt documentation is generated in CI"
+    )
+    return f"""<!doctype html>
+<html lang="en">
+{head("HealthFlow data model", "The HealthFlow warehouse: a star schema of encounters and hospital stays, its layers, keys and a searchable data dictionary generated from dbt.")}
+<body>
+{header("model", repo)}
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <h1>How the warehouse is modelled</h1>
+      <p class="lede">
+        Raw deliveries pass through three dbt layers into a star schema: two fact tables at encounter and
+        hospital-stay grain, around shared patient, date and department dimensions. This page is generated
+        from dbt's own metadata on every build, so the keys and descriptions here are the ones the tests enforce.
+      </p>
+    </div>
+    <aside class="run" aria-label="Model summary">
+      <dl>
+        <dt>Gold tables</dt><dd>{len(tables)}</dd>
+        <dt>Gold columns</dt><dd>{gold_cols}, all described</dd>
+        <dt>Relationships</dt><dd>{len(rels)}, each tested</dd>
+        <dt>dbt tests</dt><dd>{md["tests"]}</dd>
+      </dl>
+      <p class="links">{docs_link}</p>
+    </aside>
+  </section>
+
+  <section class="section" aria-labelledby="erd-title">
+    <div class="section-head"><div>
+      <h2 id="erd-title">Star schema</h2>
+      <p>Key columns only. Each line runs from a foreign key (many rows) to the primary key it references (one row),
+      and every one is checked by a dbt <code>relationships</code> test. The four reporting marts are built from these tables and listed in the dictionary below. <code>dim_patient</code> keeps every version
+      of a patient (SCD type 2), so facts join to the version that was valid at the time.</p>
+    </div></div>
+    <div class="erd" id="erd">
+      <svg class="erd-lines" aria-hidden="true"></svg>
+      {erd}
+    </div>
+    <details class="rels"><summary>All {len(rels)} tested relationships</summary><ul>{rel_rows}</ul></details>
+    <script type="application/json" id="erd-rels">{rel_json}</script>
+  </section>
+
+  <section class="section" aria-labelledby="layers">
+    <div class="section-head"><div>
+      <h2 id="layers">Layers</h2>
+      <p>Sources <code>{"</code>, <code>".join(e(s) for s in md["sources"] if s.startswith("raw."))}</code> hold every
+      delivered row as text, with its file and delivery date; the <code>audit</code> sources record each delivery for
+      freshness checks. Seeds <code>{"</code>, <code>".join(e(s) for s in md["seeds"])}</code> hold reference data.</p>
+    </div></div>
+    <div class="panel scroll"><table>
+      <thead><tr><th>Layer</th><th>Model</th><th>Built as</th><th>Purpose</th></tr></thead>
+      <tbody>{layer_rows}</tbody></table></div>
+  </section>
+
+  <section class="section" aria-labelledby="dictionary">
+    <div class="section-head">
+      <div>
+        <h2 id="dictionary">Data dictionary</h2>
+        <p>Every column in the gold layer. Types come from the warehouse catalog, descriptions from the dbt project.</p>
+      </div>
+      <div class="dict-controls">
+        <div class="filter"><label for="dict-table">Table</label>
+          <select id="dict-table"><option value="">All tables</option>{options}</select></div>
+        <div class="filter"><label for="dict-q">Search</label>
+          <input id="dict-q" type="search" placeholder="Column or description" autocomplete="off"></div>
+      </div>
+    </div>
+    <p class="small" id="dict-count" role="status">{gold_cols} columns</p>
+    <div class="panel scroll"><table class="dict">
+      <thead><tr><th>Table</th><th>Column</th><th>Type</th><th>Key</th><th>Description</th></tr></thead>
+      <tbody id="dict-body">{dict_rows}</tbody></table>
+      <p class="empty" id="dict-empty" hidden>No columns match. Try another word or choose all tables.</p></div>
+  </section>
+</main>
+{footer(repo)}
+<script src="assets/model.js"></script>
 </body>
 </html>
 """
@@ -663,8 +917,18 @@ def main() -> None:
 
     docs = args.target / "static_index.html"
     if docs.exists():
-        (out / "model").mkdir()
-        shutil.copy(docs, out / "model" / "index.html")
+        (out / "dbt-docs").mkdir()
+        shutil.copy(docs, out / "dbt-docs" / "index.html")
+    md = model_metadata(
+        json.loads((args.target / "manifest.json").read_text()), json.loads((args.target / "catalog.json").read_text())
+    )
+    (out / "model.html").write_text(render_model(meta, md, repo, docs.exists()))
+    # Older links pointed at model/index.html: keep them working.
+    (out / "model").mkdir()
+    (out / "model" / "index.html").write_text(
+        '<!doctype html><meta charset="utf-8"><title>HealthFlow data model</title>'
+        '<meta http-equiv="refresh" content="0; url=../model.html"><a href="../model.html">Data model</a>'
+    )
 
     print(f"Site written to {out}: {checks['passed']} checks passed, {checks['failed']} failed")
 
