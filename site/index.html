@@ -19,11 +19,11 @@
   {{FLOW}}
 
   <section class="readings" aria-label="Headline figures for the year">
-    <div class="reading"><div class="label">Encounters</div><div class="value" id="kpi-encounters">{{KPI_ENCOUNTERS}}</div><div class="note" id="kpi-patients">{{KPI_PATIENTS}}</div></div>
-    <div class="reading"><div class="label">Hospital stays</div><div class="value" id="kpi-stays">{{KPI_STAYS}}</div><div class="note" id="kpi-stays-note">{{KPI_STAYS_NOTE}}</div></div>
-    <div class="reading"><div class="label">Average length of stay</div><div class="value" id="kpi-los">{{KPI_LOS}}</div><div class="note">Admission to final discharge, transfers merged</div></div>
-    <div class="reading"><div class="label">30-day readmissions</div><div class="value" id="kpi-readm">{{KPI_READM}}</div><div class="note" id="kpi-readm-note">{{KPI_READM_NOTE}}</div></div>
-    <div class="reading"><div class="label">ED seen within 4 hours</div><div class="value" id="kpi-ed">{{KPI_ED}}</div><div class="note" id="kpi-ed-note">{{KPI_ED_NOTE}}</div></div>
+    <div class="reading"><div class="label">Encounters</div><div class="value" id="kpi-encounters">{{KPI_ENCOUNTERS}}</div><div class="note" id="kpi-patients">{{KPI_PATIENTS}}</div><a class="src" href="model.html?table=fact_encounters#dictionary">from <code>fact_encounters</code></a></div>
+    <div class="reading"><div class="label">Hospital stays</div><div class="value" id="kpi-stays">{{KPI_STAYS}}</div><div class="note" id="kpi-stays-note">{{KPI_STAYS_NOTE}}</div><a class="src" href="model.html?table=fact_hospital_stays#dictionary">from <code>fact_hospital_stays</code></a></div>
+    <div class="reading"><div class="label">Average length of stay</div><div class="value" id="kpi-los">{{KPI_LOS}}</div><div class="note">Admission to final discharge, transfers merged</div><a class="src" href="model.html?table=fact_hospital_stays#dictionary">from <code>fact_hospital_stays</code></a></div>
+    <div class="reading"><div class="label">30-day readmissions</div><div class="value" id="kpi-readm">{{KPI_READM}}</div><div class="note" id="kpi-readm-note">{{KPI_READM_NOTE}}</div><a class="src" href="model.html?table=mart_patient_readmissions#dictionary">from <code>mart_patient_readmissions</code></a></div>
+    <div class="reading"><div class="label">ED seen within 4 hours</div><div class="value" id="kpi-ed">{{KPI_ED}}</div><div class="note" id="kpi-ed-note">{{KPI_ED_NOTE}}</div><a class="src" href="model.html?table=mart_emergency_department#dictionary">from <code>mart_emergency_department</code></a></div>
   </section>
 
   <noscript><p class="callout" style="margin-top:24px">The charts need JavaScript. The figures above, the

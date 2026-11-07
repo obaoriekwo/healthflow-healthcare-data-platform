@@ -100,6 +100,9 @@
     empty.hidden = shown > 0;
   }
   if (table && q) {
+    // Links from the dashboard open the dictionary on one table: model.html?table=fact_encounters#dictionary
+    const wanted = new URLSearchParams(location.search).get("table");
+    if (wanted && Array.from(table.options).some((o) => o.value === wanted)) table.value = wanted;
     table.addEventListener("change", filter);
     q.addEventListener("input", filter);
     document.querySelectorAll("[data-filter]").forEach((a) => a.addEventListener("click", () => {
