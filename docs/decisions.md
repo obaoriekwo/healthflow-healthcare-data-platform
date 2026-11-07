@@ -153,3 +153,23 @@ or test broke and can be retried alone, and lineage is visible in the Airflow gr
   to `audit.reconciliation_audit`; a mismatch fails the run.
 - The nightly live demo runs the final day through this DAG with `airflow dags test` (a complete
   DAG run in-process, no scheduler needed), so every published build is proof the DAG works.
+
+## ADR-015: HealthFlow stays Azure-ready rather than Azure-deployed
+
+A deployment was attempted with the Terraform in `infrastructure/terraform`. The school-managed
+*Azure for Students* subscription available to the author blocked it: the organisation's sign-in
+policy rejected device-code and Codespaces sign-ins, and the account had no role on the
+subscription (it could not register `Microsoft.DBforPostgreSQL` or even read resource groups).
+An Azure free account was then not offered. Nothing was created in Azure.
+
+What came out of the attempt is kept in the code: automatic provider registration is turned off,
+the database and budget can be switched off for restricted subscriptions, and the guide covers
+deploying from Azure Cloud Shell when `az login` is blocked.
+
+What is verified without an Azure subscription:
+- Terraform formatting and validation on every change (Terraform CI).
+- The Bronze storage code path through the Azure Blob API, end to end against Azurite.
+- TLS settings for Azure Database for PostgreSQL in the dbt profile.
+
+The deployment itself is about an hour of work with a subscription where the account has the
+Contributor role; `docs/azure_deployment.md` has the steps.

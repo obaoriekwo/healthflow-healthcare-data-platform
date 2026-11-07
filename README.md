@@ -62,7 +62,7 @@ Workflow: [`.github/workflows/live-demo.yml`](.github/workflows/live-demo.yml).
 | 3 | dbt: staging, intermediate, star schema, KPI marts, 85 tests | ✅ |
 | 4 | Airflow runs dbt (Cosmos), data tests per model, reconciliation; part of the nightly live demo | ✅ |
 | 5 | GitHub Actions: Python CI, dbt CI, nightly live demo on GitHub Pages | ✅ |
-| 6 | Azure + Terraform: code written and validated in CI ([guide](docs/azure_deployment.md)); deployment needs an Azure subscription | 🟡 |
+| 6 | Azure + Terraform: Azure-ready, validated in CI ([guide](docs/azure_deployment.md), [why not deployed](docs/decisions.md#adr-015-healthflow-stays-azure-ready-rather-than-azure-deployed)) | 🟡 |
 | 7 | Power BI + documentation | ⏳ |
 
 ## How data flows
