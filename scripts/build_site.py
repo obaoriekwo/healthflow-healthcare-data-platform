@@ -584,7 +584,9 @@ def run_status(meta: dict, checks: dict, show_pipeline_link: bool = True, repo: 
     total, failed = check_totals(checks)
     ok = failed == 0
     state = (
-        f'<p class="run-state">{ICON_OK}All {total} checks passed</p>'
+        f'<p class="run-state">{ICON_OK}All {total} checks passed'
+        + (f", {checks['warned']} with a warning" if checks.get("warned") else "")
+        + "</p>"
         if ok
         else f'<p class="run-state">{ICON_BAD}{failed} of {total} checks failed</p>'
     )
@@ -644,8 +646,10 @@ def layer_tests(manifest: dict, run_results: dict) -> dict[str, dict[str, int]]:
             layer = "raw"
         else:
             layer = nodes.get(attached, {}).get("config", {}).get("schema", "other")
-        bucket = out.setdefault(layer, {"passed": 0, "failed": 0})
-        bucket["passed" if r["status"] in ("pass", "success") else "failed"] += 1
+        bucket = out.setdefault(layer, {"passed": 0, "failed": 0, "warned": 0})
+        # Same rule as dbt_results(): a severity-warn test that fires is a warning, not a failure.
+        status = r["status"]
+        bucket["passed" if status in ("pass", "success") else "warned" if status == "warn" else "failed"] += 1
     return out
 
 
@@ -659,8 +663,12 @@ def stage_state(kind: str, text: str, href: str | None = None) -> tuple[str, str
 def tests_state(t: dict | None, what: str = "tests") -> tuple[str, str] | None:
     if not t:
         return None
+    warned = t.get("warned", 0)
+    total = t["passed"] + t["failed"] + warned
     if t["failed"]:
-        return stage_state("bad", f"{t['failed']} of {t['passed'] + t['failed']} {what} failed")
+        return stage_state("bad", f"{t['failed']} of {total} {what} failed")
+    if warned:
+        return stage_state("warn", f"{t['passed']} {what} passed, {warned} warning{'s' if warned != 1 else ''}")
     return stage_state("ok", f"{t['passed']} {what} passed")
 
 
@@ -672,6 +680,7 @@ def flow_strip(c: dict, tests: dict | None = None, replay_ok: bool | None = None
     gold = {
         "passed": sum(tests.get(k, {}).get("passed", 0) for k in ("intermediate", "marts")),
         "failed": sum(tests.get(k, {}).get("failed", 0) for k in ("intermediate", "marts")),
+        "warned": sum(tests.get(k, {}).get("warned", 0) for k in ("intermediate", "marts")),
     }
     stages = [
         (
@@ -715,7 +724,7 @@ def flow_strip(c: dict, tests: dict | None = None, replay_ok: bool | None = None
             "Gold",
             fmt(c["fact_encounters"] + c["fact_stays"]),
             "fact rows behind these figures",
-            tests_state(gold if gold["passed"] + gold["failed"] else None),
+            tests_state(gold if gold["passed"] + gold["failed"] + gold["warned"] else None),
         ),
     ]
     # Where to see each stage in detail: the pipeline page for ingestion, the data model page for dbt layers.

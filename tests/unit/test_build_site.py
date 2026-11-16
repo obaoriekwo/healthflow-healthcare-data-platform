@@ -14,6 +14,9 @@ from scripts.build_site import (
     run_history,
     run_history_section,
 )
+from scripts.build_site import (
+    tests_state as layer_state,
+)
 
 
 def test_month_range_keeps_only_complete_months():
@@ -189,9 +192,9 @@ def test_flow_strip_reports_each_stage_from_real_counts():
     }
     tests = layer_tests(manifest, results)
     assert tests == {
-        "staging": {"passed": 1, "failed": 0},
-        "marts": {"passed": 0, "failed": 1},
-        "raw": {"passed": 1, "failed": 0},
+        "staging": {"passed": 1, "failed": 0, "warned": 0},
+        "marts": {"passed": 0, "failed": 1, "warned": 0},
+        "raw": {"passed": 1, "failed": 0, "warned": 0},
     }
     counts = {
         "files": 10,
@@ -217,3 +220,27 @@ def test_replay_note_explains_how_file_counts_add_up():
     note = replay_note(first, replay, 737)
     assert "734 runs" in note and "saw 735 files" in note and "1 deliberately broken re-send" in note
     assert "other 2 of the 737 files are the final day" in note
+
+
+def test_warning_tests_are_not_counted_as_failures():
+    """A severity-warn dbt test that fires must not show up as a failed Gold test."""
+    manifest = {
+        "nodes": {
+            "model.h.fact_x": {"resource_type": "model", "config": {"schema": "marts"}},
+            "test.h.w": {
+                "resource_type": "test",
+                "attached_node": "model.h.fact_x",
+                "depends_on": {"nodes": ["model.h.fact_x"]},
+            },
+            "test.h.p": {
+                "resource_type": "test",
+                "attached_node": "model.h.fact_x",
+                "depends_on": {"nodes": ["model.h.fact_x"]},
+            },
+        }
+    }
+    results = {"results": [{"unique_id": "test.h.w", "status": "warn"}, {"unique_id": "test.h.p", "status": "pass"}]}
+    tests = layer_tests(manifest, results)
+    assert tests == {"marts": {"passed": 1, "failed": 0, "warned": 1}}
+    kind, html = layer_state(tests["marts"])
+    assert kind == "warn" and "1 tests passed, 1 warning" in html and "failed" not in html
